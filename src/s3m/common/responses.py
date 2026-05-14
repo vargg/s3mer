@@ -38,15 +38,19 @@ class ASGIResponse:
         for k, v in self.extra_headers.items():
             headers.append((k.lower().encode(), v.encode()))
 
-        await send({
-            "type": "http.response.start",
-            "status": self.status_code,
-            "headers": headers,
-        })
-        await send({
-            "type": "http.response.body",
-            "body": self.body,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": self.status_code,
+                "headers": headers,
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": self.body,
+            }
+        )
 
 
 class ASGIStreamingResponse:
@@ -71,21 +75,27 @@ class ASGIStreamingResponse:
         for k, v in self.extra_headers.items():
             resp_headers.append((k.lower().encode(), v.encode()))
 
-        await send({
-            "type": "http.response.start",
-            "status": self.status_code,
-            "headers": resp_headers,
-        })
+        await send(
+            {
+                "type": "http.response.start",
+                "status": self.status_code,
+                "headers": resp_headers,
+            }
+        )
 
         async for chunk in self._generator:
-            await send({
-                "type": "http.response.body",
-                "body": chunk,
-                "more_body": True,
-            })
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": chunk,
+                    "more_body": True,
+                }
+            )
 
-        await send({
-            "type": "http.response.body",
-            "body": b"",
-            "more_body": False,
-        })
+        await send(
+            {
+                "type": "http.response.body",
+                "body": b"",
+                "more_body": False,
+            }
+        )

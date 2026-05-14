@@ -134,9 +134,7 @@ class S3ProxyApp:
 
         # Dispatch
         try:
-            response = await self._dispatch(
-                s3_req.operation, s3_req.bucket, s3_req.key, receive, headers
-            )
+            response = await self._dispatch(s3_req.operation, s3_req.bucket, s3_req.key, receive, headers)
         except Exception as exc:
             logger.exception("Unhandled error in S3 proxy", error=str(exc))
             response = S3ErrorResponse(
@@ -166,26 +164,35 @@ class S3ProxyApp:
         match operation:
             # Bucket operations
             case S3Operation.CREATE_BUCKET:
+                assert bucket is not None
                 return await handle_create_bucket(bucket, pool, write_strategy)
             case S3Operation.DELETE_BUCKET:
+                assert bucket is not None
                 return await handle_delete_bucket(bucket, pool, write_strategy)
             case S3Operation.HEAD_BUCKET:
+                assert bucket is not None
                 return await handle_head_bucket(bucket, pool, read_strategy)
             case S3Operation.LIST_BUCKETS:
                 return await handle_list_buckets(pool, read_strategy)
 
             # Object operations
             case S3Operation.PUT_OBJECT:
+                assert bucket is not None
+                assert key is not None
                 body = await _read_body(receive)
                 content_type = headers.get("content-type", "application/octet-stream")
-                return await handle_put_object(
-                    bucket, key, body, pool, write_strategy, content_type
-                )
+                return await handle_put_object(bucket, key, body, pool, write_strategy, content_type)
             case S3Operation.GET_OBJECT:
+                assert bucket is not None
+                assert key is not None
                 return await handle_get_object(bucket, key, pool, read_strategy)
             case S3Operation.DELETE_OBJECT:
+                assert bucket is not None
+                assert key is not None
                 return await handle_delete_object(bucket, key, pool, write_strategy)
             case S3Operation.HEAD_OBJECT:
+                assert bucket is not None
+                assert key is not None
                 return await handle_head_object(bucket, key, pool, read_strategy)
 
             case _:

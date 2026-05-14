@@ -75,12 +75,14 @@ async def handle_list_buckets(
         # Convert datetime objects to ISO strings for XML serialization
         bucket_list = []
         for b in buckets:
-            bucket_list.append({
-                "Name": b["Name"],
-                "CreationDate": b["CreationDate"].isoformat()
-                if hasattr(b["CreationDate"], "isoformat")
-                else str(b["CreationDate"]),
-            })
+            bucket_list.append(
+                {
+                    "Name": b["Name"],
+                    "CreationDate": b["CreationDate"].isoformat()
+                    if hasattr(b["CreationDate"], "isoformat")
+                    else str(b["CreationDate"]),
+                }
+            )
 
         xml = list_buckets_xml(bucket_list)
         return ASGIResponse(content=xml, status_code=200)

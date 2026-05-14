@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class OperationType(str, Enum):
+class OperationType(StrEnum):
     """Whether an S3 operation is a read or write."""
 
     READ = "read"
     WRITE = "write"
 
 
-class S3Operation(str, Enum):
+class S3Operation(StrEnum):
     """
     Supported S3 API operations.
 
@@ -72,9 +72,11 @@ _OPERATION_TYPES: dict[S3Operation, OperationType] = {
     S3Operation.HEAD_OBJECT: OperationType.READ,
 }
 
-_OBJECT_OPERATIONS: frozenset[S3Operation] = frozenset({
-    S3Operation.PUT_OBJECT,
-    S3Operation.GET_OBJECT,
-    S3Operation.DELETE_OBJECT,
-    S3Operation.HEAD_OBJECT,
-})
+_OBJECT_OPERATIONS: frozenset[S3Operation] = frozenset(
+    {
+        S3Operation.PUT_OBJECT,
+        S3Operation.GET_OBJECT,
+        S3Operation.DELETE_OBJECT,
+        S3Operation.HEAD_OBJECT,
+    }
+)

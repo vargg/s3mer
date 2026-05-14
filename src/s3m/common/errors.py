@@ -22,21 +22,15 @@ class S3Errors:
     """Registry of standard S3 error codes."""
 
     ACCESS_DENIED = S3ErrorCode("AccessDenied", 403, "Access Denied")
-    BUCKET_ALREADY_EXISTS = S3ErrorCode(
-        "BucketAlreadyExists", 409, "The requested bucket name is not available."
-    )
+    BUCKET_ALREADY_EXISTS = S3ErrorCode("BucketAlreadyExists", 409, "The requested bucket name is not available.")
     BUCKET_ALREADY_OWNED_BY_YOU = S3ErrorCode(
         "BucketAlreadyOwnedByYou",
         409,
         "The bucket you tried to create already exists, and you own it.",
     )
-    BUCKET_NOT_EMPTY = S3ErrorCode(
-        "BucketNotEmpty", 409, "The bucket you tried to delete is not empty."
-    )
+    BUCKET_NOT_EMPTY = S3ErrorCode("BucketNotEmpty", 409, "The bucket you tried to delete is not empty.")
     INTERNAL_ERROR = S3ErrorCode("InternalError", 500, "We encountered an internal error. Please try again.")
-    INVALID_BUCKET_NAME = S3ErrorCode(
-        "InvalidBucketName", 400, "The specified bucket is not valid."
-    )
+    INVALID_BUCKET_NAME = S3ErrorCode("InvalidBucketName", 400, "The specified bucket is not valid.")
     NO_SUCH_BUCKET = S3ErrorCode("NoSuchBucket", 404, "The specified bucket does not exist.")
     NO_SUCH_KEY = S3ErrorCode("NoSuchKey", 404, "The specified key does not exist.")
     METHOD_NOT_ALLOWED = S3ErrorCode("MethodNotAllowed", 405, "The specified method is not allowed.")
@@ -78,10 +72,12 @@ class S3ErrorResponse:
         ]
         if self.resource:
             parts.append(f"  <Resource>{_xml_escape(self.resource)}</Resource>")
-        parts.extend([
-            f"  <RequestId>{self.request_id}</RequestId>",
-            "</Error>",
-        ])
+        parts.extend(
+            [
+                f"  <RequestId>{self.request_id}</RequestId>",
+                "</Error>",
+            ]
+        )
         return "\n".join(parts)
 
     def to_response(self) -> ASGIResponse:
@@ -108,8 +104,9 @@ class S3ErrorResponse:
         error_message = str(error)
 
         # Extract error code from botocore ClientError
-        if hasattr(error, "response"):
-            error_info = error.response.get("Error", {})  # type: ignore[union-attr]
+        response = getattr(error, "response", None)
+        if isinstance(response, dict):
+            error_info: dict[str, str] = response.get("Error", {})
             error_code_str = error_info.get("Code", "")
             error_message = error_info.get("Message", str(error))
 

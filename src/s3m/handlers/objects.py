@@ -64,9 +64,7 @@ async def handle_get_object(
         if "ContentLength" in response:
             headers["Content-Length"] = str(response["ContentLength"])
         if "LastModified" in response:
-            headers["Last-Modified"] = response["LastModified"].strftime(
-                "%a, %d %b %Y %H:%M:%S GMT"
-            )
+            headers["Last-Modified"] = response["LastModified"].strftime("%a, %d %b %Y %H:%M:%S GMT")
         if "VersionId" in response:
             headers["x-amz-version-id"] = response["VersionId"]
 
@@ -124,9 +122,7 @@ async def handle_head_object(
         if "ContentType" in response:
             headers["Content-Type"] = response["ContentType"]
         if "LastModified" in response:
-            headers["Last-Modified"] = response["LastModified"].strftime(
-                "%a, %d %b %Y %H:%M:%S GMT"
-            )
+            headers["Last-Modified"] = response["LastModified"].strftime("%a, %d %b %Y %H:%M:%S GMT")
 
         return ASGIResponse(content="", status_code=200, headers=headers)
     except Exception as exc:

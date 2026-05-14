@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def list_buckets_xml(buckets: list[dict]) -> str:
@@ -14,13 +14,8 @@ def list_buckets_xml(buckets: list[dict]) -> str:
     bucket_entries = []
     for b in buckets:
         name = b["Name"]
-        creation_date = b.get("CreationDate", datetime.now(tz=timezone.utc).isoformat())
-        bucket_entries.append(
-            f"    <Bucket>"
-            f"<Name>{name}</Name>"
-            f"<CreationDate>{creation_date}</CreationDate>"
-            f"</Bucket>"
-        )
+        creation_date = b.get("CreationDate", datetime.now(tz=UTC).isoformat())
+        bucket_entries.append(f"    <Bucket><Name>{name}</Name><CreationDate>{creation_date}</CreationDate></Bucket>")
 
     buckets_xml = "\n".join(bucket_entries)
 
@@ -53,13 +48,15 @@ def delete_result_xml(deleted_keys: list[str], errors: list[dict] | None = None)
 
     if errors:
         for err in errors:
-            parts.extend([
-                "  <Error>",
-                f"    <Key>{err['Key']}</Key>",
-                f"    <Code>{err['Code']}</Code>",
-                f"    <Message>{err['Message']}</Message>",
-                "  </Error>",
-            ])
+            parts.extend(
+                [
+                    "  <Error>",
+                    f"    <Key>{err['Key']}</Key>",
+                    f"    <Code>{err['Code']}</Code>",
+                    f"    <Message>{err['Message']}</Message>",
+                    "  </Error>",
+                ]
+            )
 
     parts.append("</DeleteResult>")
     return "\n".join(parts)
