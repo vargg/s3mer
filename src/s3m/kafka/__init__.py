@@ -1,0 +1,1 @@
+"""Kafka integration via FastStream."""

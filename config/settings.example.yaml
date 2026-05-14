@@ -1,0 +1,29 @@
+# s3m proxy configuration
+# Copy to config/settings.yaml and adjust values
+
+log_level: INFO
+
+backends:
+  - name: primary
+    endpoint_url: http://localhost:9000
+    region: us-east-1
+    access_key: minioadmin
+    secret_key: minioadmin
+    is_primary: true
+    addressing_style: path
+    priority: 0
+
+  - name: secondary
+    endpoint_url: http://localhost:9002
+    region: us-east-1
+    access_key: minioadmin
+    secret_key: minioadmin
+    is_primary: false
+    addressing_style: path
+    priority: 1
+
+kafka:
+  bootstrap_servers:
+    - localhost:9094
+  topic: s3m.replication
+  consumer_group: s3m-workers

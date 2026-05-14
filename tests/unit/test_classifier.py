@@ -1,0 +1,104 @@
+"""Unit tests for S3 request classifier."""
+
+import pytest
+
+from s3m.routing.classifier import S3Request, classify_request
+from s3m.routing.operations import S3Operation
+
+
+class TestClassifyRequest:
+    """Test HTTP request → S3 operation classification."""
+
+    # --- Object operations ---
+
+    def test_put_object(self) -> None:
+        result = classify_request("PUT", "/my-bucket/photos/cat.jpg")
+        assert result == S3Request(
+            operation=S3Operation.PUT_OBJECT,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_get_object(self) -> None:
+        result = classify_request("GET", "/my-bucket/photos/cat.jpg")
+        assert result == S3Request(
+            operation=S3Operation.GET_OBJECT,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_delete_object(self) -> None:
+        result = classify_request("DELETE", "/my-bucket/photos/cat.jpg")
+        assert result == S3Request(
+            operation=S3Operation.DELETE_OBJECT,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_head_object(self) -> None:
+        result = classify_request("HEAD", "/my-bucket/photos/cat.jpg")
+        assert result == S3Request(
+            operation=S3Operation.HEAD_OBJECT,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_get_object_nested_key(self) -> None:
+        result = classify_request("GET", "/bucket/a/b/c/d.txt")
+        assert result.operation == S3Operation.GET_OBJECT
+        assert result.bucket == "bucket"
+        assert result.key == "a/b/c/d.txt"
+
+    # --- Bucket operations ---
+
+    def test_create_bucket(self) -> None:
+        result = classify_request("PUT", "/my-bucket")
+        assert result == S3Request(
+            operation=S3Operation.CREATE_BUCKET,
+            bucket="my-bucket",
+            key=None,
+        )
+
+    def test_create_bucket_trailing_slash(self) -> None:
+        result = classify_request("PUT", "/my-bucket/")
+        assert result == S3Request(
+            operation=S3Operation.CREATE_BUCKET,
+            bucket="my-bucket",
+            key=None,
+        )
+
+    def test_delete_bucket(self) -> None:
+        result = classify_request("DELETE", "/my-bucket")
+        assert result == S3Request(
+            operation=S3Operation.DELETE_BUCKET,
+            bucket="my-bucket",
+            key=None,
+        )
+
+    def test_head_bucket(self) -> None:
+        result = classify_request("HEAD", "/my-bucket")
+        assert result == S3Request(
+            operation=S3Operation.HEAD_BUCKET,
+            bucket="my-bucket",
+            key=None,
+        )
+
+    # --- Service operations ---
+
+    def test_list_buckets(self) -> None:
+        result = classify_request("GET", "/")
+        assert result == S3Request(
+            operation=S3Operation.LIST_BUCKETS,
+            bucket=None,
+            key=None,
+        )
+
+    # --- Error cases ---
+
+    def test_unknown_method(self) -> None:
+        with pytest.raises(ValueError, match="Cannot classify"):
+            classify_request("PATCH", "/my-bucket/key")
+
+    def test_case_insensitive_method(self) -> None:
+        result = classify_request("get", "/my-bucket/key")
+        assert result.operation == S3Operation.GET_OBJECT
