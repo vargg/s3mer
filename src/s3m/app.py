@@ -134,7 +134,13 @@ class S3ProxyApp:
 
         # Dispatch
         try:
-            response = await self._dispatch(s3_req.operation, s3_req.bucket, s3_req.key, receive, headers)
+            if s3_req.operation != S3Operation.LIST_BUCKETS and s3_req.bucket is None:
+                response = S3ErrorResponse(
+                    error_code=S3Errors.INVALID_BUCKET_NAME,
+                    resource=path,
+                ).to_response()
+            else:
+                response = await self._dispatch(s3_req.operation, s3_req.bucket or "", s3_req.key, receive, headers)
         except Exception as exc:
             logger.exception("Unhandled error in S3 proxy", error=str(exc))
             response = S3ErrorResponse(
@@ -147,55 +153,79 @@ class S3ProxyApp:
     async def _dispatch(
         self,
         operation: S3Operation,
-        bucket: str | None,
+        bucket: str,
         key: str | None,
         receive: Any,
         headers: dict[str, str],
     ) -> Any:
-        """Dispatch an S3 operation to the appropriate handler."""
-        assert self._pool is not None
-        assert self._read_strategy is not None
-        assert self._write_strategy is not None
+        """Dispatch an S3 operation to the appropriate handler.
 
+        Called after LIST_BUCKETS is already handled, so bucket is always set.
+        """
         pool = self._pool
         read_strategy = self._read_strategy
         write_strategy = self._write_strategy
 
+        # These are guaranteed by startup(); guard against misconfigured calls.
+        if pool is None or read_strategy is None or write_strategy is None:
+            return S3ErrorResponse(
+                error_code=S3Errors.INTERNAL_ERROR,
+                message="Proxy not initialized",
+            ).to_response()
+
         match operation:
             # Bucket operations
             case S3Operation.CREATE_BUCKET:
-                assert bucket is not None
                 return await handle_create_bucket(bucket, pool, write_strategy)
             case S3Operation.DELETE_BUCKET:
-                assert bucket is not None
                 return await handle_delete_bucket(bucket, pool, write_strategy)
             case S3Operation.HEAD_BUCKET:
-                assert bucket is not None
                 return await handle_head_bucket(bucket, pool, read_strategy)
             case S3Operation.LIST_BUCKETS:
                 return await handle_list_buckets(pool, read_strategy)
 
-            # Object operations
+            # Object operations — key is required
+            case S3Operation.PUT_OBJECT | S3Operation.GET_OBJECT | S3Operation.DELETE_OBJECT | S3Operation.HEAD_OBJECT:
+                if key is None:
+                    return S3ErrorResponse(
+                        error_code=S3Errors.NO_SUCH_KEY,
+                        message="Object key is required",
+                        resource=f"/{bucket}",
+                    ).to_response()
+                return await self._dispatch_object(
+                    operation, bucket, key, receive, headers, pool, read_strategy, write_strategy
+                )
+
+            case _:
+                return S3ErrorResponse(
+                    error_code=S3Errors.METHOD_NOT_ALLOWED,
+                    message=f"Operation {operation} not implemented",
+                ).to_response()
+
+    async def _dispatch_object(
+        self,
+        operation: S3Operation,
+        bucket: str,
+        key: str,
+        receive: Any,
+        headers: dict[str, str],
+        pool: BackendPool,
+        read_strategy: ReadFallbackStrategy,
+        write_strategy: WritePrimaryReplicationStrategy,
+    ) -> Any:
+        """Dispatch object-level operations (key is guaranteed non-None)."""
+        match operation:
             case S3Operation.PUT_OBJECT:
-                assert bucket is not None
-                assert key is not None
                 body = await _read_body(receive)
                 content_type = headers.get("content-type", "application/octet-stream")
                 return await handle_put_object(bucket, key, body, pool, write_strategy, content_type)
             case S3Operation.GET_OBJECT:
-                assert bucket is not None
-                assert key is not None
                 return await handle_get_object(bucket, key, pool, read_strategy)
             case S3Operation.DELETE_OBJECT:
-                assert bucket is not None
-                assert key is not None
                 return await handle_delete_object(bucket, key, pool, write_strategy)
             case S3Operation.HEAD_OBJECT:
-                assert bucket is not None
-                assert key is not None
                 return await handle_head_object(bucket, key, pool, read_strategy)
-
-            case _:
+            case _:  # pragma: no cover
                 return S3ErrorResponse(
                     error_code=S3Errors.METHOD_NOT_ALLOWED,
                     message=f"Operation {operation} not implemented",
