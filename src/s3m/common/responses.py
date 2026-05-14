@@ -5,8 +5,10 @@ These are standalone — no framework dependency.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 class ASGIResponse:
@@ -26,7 +28,7 @@ class ASGIResponse:
         self.media_type = media_type
         self.extra_headers = headers or {}
 
-    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
         # Check if Content-Length is provided explicitly in headers
         extra_lower = {k.lower(): v for k, v in self.extra_headers.items()}
         headers: list[tuple[bytes, bytes]] = [
@@ -43,13 +45,13 @@ class ASGIResponse:
                 "type": "http.response.start",
                 "status": self.status_code,
                 "headers": headers,
-            }
+            },
         )
         await send(
             {
                 "type": "http.response.body",
                 "body": self.body,
-            }
+            },
         )
 
 
@@ -68,7 +70,7 @@ class ASGIStreamingResponse:
         self.media_type = media_type
         self.extra_headers = headers or {}
 
-    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
         resp_headers: list[tuple[bytes, bytes]] = [
             (b"content-type", self.media_type.encode()),
         ]
@@ -80,7 +82,7 @@ class ASGIStreamingResponse:
                 "type": "http.response.start",
                 "status": self.status_code,
                 "headers": resp_headers,
-            }
+            },
         )
 
         async for chunk in self._generator:
@@ -89,7 +91,7 @@ class ASGIStreamingResponse:
                     "type": "http.response.body",
                     "body": chunk,
                     "more_body": True,
-                }
+                },
             )
 
         await send(
@@ -97,5 +99,5 @@ class ASGIStreamingResponse:
                 "type": "http.response.body",
                 "body": b"",
                 "more_body": False,
-            }
+            },
         )

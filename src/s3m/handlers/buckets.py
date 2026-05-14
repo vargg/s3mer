@@ -29,7 +29,7 @@ async def handle_create_bucket(
             headers={"Location": f"/{bucket}"},
         )
     except Exception as exc:
-        logger.error("CreateBucket failed", bucket=bucket, error=str(exc))
+        logger.exception("CreateBucket failed", bucket=bucket, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()
 
 
@@ -44,7 +44,7 @@ async def handle_delete_bucket(
         await write_strategy.execute(S3Operation.DELETE_BUCKET, pool, params)
         return ASGIResponse(content="", status_code=204)
     except Exception as exc:
-        logger.error("DeleteBucket failed", bucket=bucket, error=str(exc))
+        logger.exception("DeleteBucket failed", bucket=bucket, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()
 
 
@@ -59,7 +59,7 @@ async def handle_head_bucket(
         await read_strategy.execute(S3Operation.HEAD_BUCKET, pool, params)
         return ASGIResponse(content="", status_code=200)
     except Exception as exc:
-        logger.error("HeadBucket failed", bucket=bucket, error=str(exc))
+        logger.exception("HeadBucket failed", bucket=bucket, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()
 
 
@@ -73,19 +73,18 @@ async def handle_list_buckets(
         buckets = response.get("Buckets", [])
 
         # Convert datetime objects to ISO strings for XML serialization
-        bucket_list = []
-        for b in buckets:
-            bucket_list.append(
-                {
-                    "Name": b["Name"],
-                    "CreationDate": b["CreationDate"].isoformat()
-                    if hasattr(b["CreationDate"], "isoformat")
-                    else str(b["CreationDate"]),
-                }
-            )
+        bucket_list = [
+            {
+                "Name": b["Name"],
+                "CreationDate": b["CreationDate"].isoformat()
+                if hasattr(b["CreationDate"], "isoformat")
+                else str(b["CreationDate"]),
+            }
+            for b in buckets
+        ]
 
         xml = list_buckets_xml(bucket_list)
         return ASGIResponse(content=xml, status_code=200)
     except Exception as exc:
-        logger.error("ListBuckets failed", error=str(exc))
+        logger.exception("ListBuckets failed", error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource="/").to_response()

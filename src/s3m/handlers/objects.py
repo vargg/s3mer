@@ -42,7 +42,7 @@ async def handle_put_object(
 
         return ASGIResponse(content="", status_code=200, headers=headers)
     except Exception as exc:
-        logger.error("PutObject failed", bucket=bucket, key=key, error=str(exc))
+        logger.exception("PutObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
 
 
@@ -78,7 +78,7 @@ async def handle_get_object(
             status_code=200,
         )
     except Exception as exc:
-        logger.error("GetObject failed", bucket=bucket, key=key, error=str(exc))
+        logger.exception("GetObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
 
 
@@ -99,7 +99,7 @@ async def handle_delete_object(
 
         return ASGIResponse(content="", status_code=204, headers=headers)
     except Exception as exc:
-        logger.error("DeleteObject failed", bucket=bucket, key=key, error=str(exc))
+        logger.exception("DeleteObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
 
 
@@ -126,5 +126,5 @@ async def handle_head_object(
 
         return ASGIResponse(content="", status_code=200, headers=headers)
     except Exception as exc:
-        logger.error("HeadObject failed", bucket=bucket, key=key, error=str(exc))
+        logger.exception("HeadObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()

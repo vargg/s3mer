@@ -47,7 +47,8 @@ class BackendPool:
     def primary(self) -> S3BackendClient:
         """Get the primary backend client."""
         if self._primary is None:
-            raise RuntimeError("No primary backend configured")
+            msg = "No primary backend configured"
+            raise RuntimeError(msg)
         return self._primary
 
     def get(self, name: str) -> S3BackendClient:

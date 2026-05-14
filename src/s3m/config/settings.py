@@ -58,7 +58,8 @@ class Settings(BaseSettings):
 
         primaries = [b for b in self.backends if b.is_primary]
         if len(primaries) == 0:
-            raise ValueError("At least one backend must have is_primary=True")
+            msg = "At least one backend must have is_primary=True"
+            raise ValueError(msg)
         if len(primaries) > 1:
             names = [b.name for b in primaries]
             raise ValueError(f"Exactly one primary backend allowed, got: {names}")

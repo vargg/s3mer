@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from faststream.kafka import KafkaBroker
+from typing import TYPE_CHECKING
 
 from s3m.common.logging import get_logger
 from s3m.kafka.messages import ReplicationMessage
+
+if TYPE_CHECKING:
+    from faststream.kafka import KafkaBroker
 
 logger = get_logger(__name__)
 

@@ -43,8 +43,7 @@ def delete_result_xml(deleted_keys: list[str], errors: list[dict] | None = None)
     """Build DeleteObjects result XML."""
     parts = ['<?xml version="1.0" encoding="UTF-8"?>', "<DeleteResult>"]
 
-    for key in deleted_keys:
-        parts.append(f"  <Deleted><Key>{key}</Key></Deleted>")
+    parts.extend(f"  <Deleted><Key>{key}</Key></Deleted>" for key in deleted_keys)
 
     if errors:
         for err in errors:
@@ -55,7 +54,7 @@ def delete_result_xml(deleted_keys: list[str], errors: list[dict] | None = None)
                     f"    <Code>{err['Code']}</Code>",
                     f"    <Message>{err['Message']}</Message>",
                     "  </Error>",
-                ]
+                ],
             )
 
     parts.append("</DeleteResult>")

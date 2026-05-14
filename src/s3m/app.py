@@ -94,7 +94,7 @@ class S3ProxyApp:
 
         await self._handle_http(scope, receive, send)
 
-    async def _handle_lifespan(self, scope: dict, receive: Any, send: Any) -> None:
+    async def _handle_lifespan(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
         """Handle ASGI lifespan events (startup/shutdown)."""
         while True:
             message = await receive()
@@ -193,7 +193,14 @@ class S3ProxyApp:
                         resource=f"/{bucket}",
                     ).to_response()
                 return await self._dispatch_object(
-                    operation, bucket, key, receive, headers, pool, read_strategy, write_strategy
+                    operation,
+                    bucket,
+                    key,
+                    receive,
+                    headers,
+                    pool,
+                    read_strategy,
+                    write_strategy,
                 )
 
             case _:

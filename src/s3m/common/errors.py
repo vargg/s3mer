@@ -76,7 +76,7 @@ class S3ErrorResponse:
             [
                 f"  <RequestId>{self.request_id}</RequestId>",
                 "</Error>",
-            ]
+            ],
         )
         return "\n".join(parts)
 

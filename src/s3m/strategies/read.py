@@ -53,7 +53,6 @@ class ReadFallbackStrategy:
                     bucket=params.get("Bucket"),
                     key=params.get("Key"),
                 )
-                return response
             except Exception as exc:
                 logger.warning(
                     "Read operation failed on backend, trying next",
@@ -62,6 +61,8 @@ class ReadFallbackStrategy:
                     error=str(exc),
                 )
                 last_error = exc
+            else:
+                return response
 
         # All backends failed
         logger.error(
@@ -70,5 +71,7 @@ class ReadFallbackStrategy:
             bucket=params.get("Bucket"),
             key=params.get("Key"),
         )
-        assert last_error is not None  # at least one backend must exist
+        if last_error is None:
+            msg = "No backends configured"
+            raise RuntimeError(msg)
         raise last_error

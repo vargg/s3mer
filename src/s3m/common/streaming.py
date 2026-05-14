@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 # Default chunk size: 64 KB — good balance between throughput and memory
 DEFAULT_CHUNK_SIZE = 65_536
@@ -38,7 +41,5 @@ async def collect_request_body(
     Use only for small payloads (bucket creation XML, etc.).
     For large objects, stream directly to the backend.
     """
-    chunks: list[bytes] = []
-    async for chunk in body_iterator:
-        chunks.append(chunk)
+    chunks: list[bytes] = [chunk async for chunk in body_iterator]
     return b"".join(chunks)

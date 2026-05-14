@@ -78,5 +78,5 @@ _OBJECT_OPERATIONS: frozenset[S3Operation] = frozenset(
         S3Operation.GET_OBJECT,
         S3Operation.DELETE_OBJECT,
         S3Operation.HEAD_OBJECT,
-    }
+    },
 )

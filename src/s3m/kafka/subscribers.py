@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from faststream.kafka import KafkaBroker
+from typing import TYPE_CHECKING
 
+from s3m.backends.client import S3BackendClient
 from s3m.backends.pool import BackendPool
 from s3m.common.logging import get_logger
 from s3m.kafka.messages import ReplicationMessage
 from s3m.routing.operations import S3Operation
+
+if TYPE_CHECKING:
+    from faststream.kafka import KafkaBroker
 
 logger = get_logger(__name__)
 
@@ -51,7 +55,7 @@ def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> 
                     target=target_name,
                 )
             except Exception as exc:
-                logger.error(
+                logger.exception(
                     "Replication failed",
                     message_id=message.message_id,
                     operation=message.operation,
@@ -59,14 +63,14 @@ def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> 
                     error=str(exc),
                     retry_count=message.retry_count,
                 )
-                # TODO: implement DLQ / retry logic
+                # DLQ / retry logic planned
 
 
 async def _replicate_operation(
     operation: S3Operation,
     message: ReplicationMessage,
-    source: object,
-    target: object,
+    source: S3BackendClient,
+    target: S3BackendClient,
 ) -> None:
     """
     Replicate a single S3 operation from source to target backend.
@@ -74,11 +78,6 @@ async def _replicate_operation(
     For PutObject, reads the object from the source and writes it to the target.
     For other operations, replays the operation directly on the target.
     """
-    from s3m.backends.client import S3BackendClient
-
-    assert isinstance(source, S3BackendClient)
-    assert isinstance(target, S3BackendClient)
-
     match operation:
         case S3Operation.PUT_OBJECT:
             # Read from source, write to target

@@ -41,7 +41,8 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "SIM", "ASYNC"]
+select = ["ALL"]
+ignore = ["ANN401", "BLE001", "COM812", "D", "EM102", "TC001", "TRY003", "PLR0911", "PLR0913"]
 
 [tool.ty.environment]
 python-version = "3.12"

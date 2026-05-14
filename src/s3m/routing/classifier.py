@@ -60,9 +60,10 @@ def classify_request(method: str, path: str) -> S3Request:
             continue
 
         groups = match.groups()
-        bucket = groups[0] if len(groups) >= 1 else None
-        key = groups[1] if len(groups) >= 2 else None
+        bucket = groups[0] if len(groups) > 0 else None
+        key = groups[1] if len(groups) > 1 else None
 
         return S3Request(operation=operation, bucket=bucket, key=key)
 
-    raise ValueError(f"Cannot classify request: {method} {path}")
+    msg = f"Cannot classify request: {method} {path}"
+    raise ValueError(msg)
