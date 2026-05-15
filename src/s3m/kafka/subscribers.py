@@ -1,7 +1,6 @@
 """Kafka subscriber for replication messages."""
 
-from __future__ import annotations
-
+import asyncio
 from typing import TYPE_CHECKING
 
 from s3m.backends.client import S3BackendClient
@@ -14,6 +13,8 @@ if TYPE_CHECKING:
     from faststream.kafka import KafkaBroker
 
 logger = get_logger(__name__)
+
+MAX_RETRIES = 3
 
 
 def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> None:
@@ -44,6 +45,7 @@ def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> 
         operation = S3Operation(message.operation)
         source = pool.get(message.source_backend)
 
+        failed_targets = []
         for target_name in message.target_backends:
             target = pool.get(target_name)
             try:
@@ -63,7 +65,25 @@ def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> 
                     error=str(exc),
                     retry_count=message.retry_count,
                 )
-                # DLQ / retry logic planned
+                failed_targets.append(target_name)
+
+        if not failed_targets:
+            return
+
+        message.retry_count += 1
+        message.target_backends = failed_targets
+
+        if message.retry_count > MAX_RETRIES:
+            logger.error(
+                "Max retries exceeded, routing to DLQ",
+                message_id=message.message_id,
+                operation=message.operation,
+                targets=failed_targets,
+            )
+            await broker.publish(message.model_dump_json(), topic="s3m.replication.dlq")
+        else:
+            await asyncio.sleep(1)
+            await broker.publish(message.model_dump_json(), topic=topic)
 
 
 async def _replicate_operation(
@@ -87,14 +107,8 @@ async def _replicate_operation(
             )
 
             # Read the full body for replication
-            body_chunks: list[bytes] = []
             async with get_response["Body"] as stream:
-                while True:
-                    chunk = await stream.read(65_536)
-                    if not chunk:
-                        break
-                    body_chunks.append(chunk)
-            body = b"".join(body_chunks)
+                body = await stream.read()
 
             put_params: dict = {
                 "Bucket": message.bucket,

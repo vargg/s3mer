@@ -1,7 +1,5 @@
 """S3 operation enum with metadata for routing decisions."""
 
-from __future__ import annotations
-
 from enum import StrEnum
 
 

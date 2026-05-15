@@ -3,8 +3,6 @@
 These are standalone — no framework dependency.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -16,13 +14,11 @@ class ASGIResponse:
 
     def __init__(
         self,
-        content: bytes | str = b"",
+        content: bytes = b"",
         status_code: int = 200,
         media_type: str = "application/xml",
         headers: dict[str, str] | None = None,
     ) -> None:
-        if isinstance(content, str):
-            content = content.encode("utf-8")
         self.body = content
         self.status_code = status_code
         self.media_type = media_type

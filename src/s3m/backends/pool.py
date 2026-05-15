@@ -1,7 +1,5 @@
 """Backend pool — manages all configured S3 backend clients."""
 
-from __future__ import annotations
-
 from s3m.backends.client import S3BackendClient
 from s3m.common.logging import get_logger
 from s3m.config.settings import BackendConfig

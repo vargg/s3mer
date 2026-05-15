@@ -1,7 +1,5 @@
 """S3-compatible XML error response builders."""
 
-from __future__ import annotations
-
 import uuid
 from dataclasses import dataclass, field
 from typing import ClassVar
@@ -83,7 +81,7 @@ class S3ErrorResponse:
     def to_response(self) -> ASGIResponse:
         """Convert to an ASGI response with correct status and content type."""
         return ASGIResponse(
-            content=self.to_xml(),
+            content=self.to_xml().encode(),
             status_code=self.error_code.http_status,
             media_type="application/xml",
             headers={"x-amz-request-id": self.request_id},

@@ -1,7 +1,5 @@
 """Read fallback strategy — iterate backends, return first success."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from s3m.backends.pool import BackendPool

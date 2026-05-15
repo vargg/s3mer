@@ -1,7 +1,5 @@
 """Pydantic message schemas for Kafka replication events."""
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from uuid import uuid4
 

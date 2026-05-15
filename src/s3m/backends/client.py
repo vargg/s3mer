@@ -1,7 +1,5 @@
 """S3 backend client wrapping aiobotocore for a single storage backend."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from aiobotocore.config import AioConfig

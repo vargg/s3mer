@@ -1,8 +1,5 @@
 """Unit tests for read and write strategies."""
 
-from __future__ import annotations
-
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

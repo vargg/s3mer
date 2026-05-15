@@ -1,7 +1,5 @@
 """Replication message publisher — thin wrapper around FastStream publisher."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from s3m.common.logging import get_logger

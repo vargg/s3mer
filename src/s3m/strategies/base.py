@@ -1,7 +1,5 @@
 """Abstract strategy protocol for handling S3 operations."""
 
-from __future__ import annotations
-
 from typing import Any, Protocol
 
 from s3m.backends.pool import BackendPool

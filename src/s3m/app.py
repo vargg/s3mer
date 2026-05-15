@@ -1,12 +1,17 @@
 """Pure ASGI application that proxies S3 requests to configured backends."""
 
-from __future__ import annotations
-
+import time
 from typing import Any
 
 from s3m.backends.pool import BackendPool
 from s3m.common.errors import S3ErrorResponse, S3Errors
 from s3m.common.logging import get_logger, setup_logging
+from s3m.common.metrics import (
+    HTTP_REQUEST_DURATION_SECONDS,
+    HTTP_REQUESTS_TOTAL,
+    health_handler,
+    metrics_handler,
+)
 from s3m.config.settings import load_settings
 from s3m.handlers.buckets import (
     handle_create_bucket,
@@ -116,39 +121,58 @@ class S3ProxyApp:
         method = scope["method"]
         path = scope["path"]
 
+        if method == "GET" and path == "/metrics":
+            await metrics_handler(scope, receive, send)
+            return
+        if method == "GET" and path == "/health":
+            await health_handler(scope, receive, send)
+            return
+
         # Parse headers into a dict
         headers: dict[str, str] = {}
         for name_bytes, value_bytes in scope.get("headers", []):
             headers[name_bytes.decode("latin-1").lower()] = value_bytes.decode("latin-1")
 
-        # Classify
-        try:
-            s3_req = classify_request(method, path)
-        except ValueError:
-            response = S3ErrorResponse(
-                error_code=S3Errors.METHOD_NOT_ALLOWED,
-                resource=path,
-            ).to_response()
-            await response(scope, receive, send)
-            return
+        start_time = time.perf_counter()
+        operation_name = "unknown"
+        status_code = 500
 
-        # Dispatch
         try:
-            if s3_req.operation != S3Operation.LIST_BUCKETS and s3_req.bucket is None:
+            # Classify
+            try:
+                s3_req = classify_request(method, path)
+                operation_name = s3_req.operation.value
+            except ValueError:
                 response = S3ErrorResponse(
-                    error_code=S3Errors.INVALID_BUCKET_NAME,
+                    error_code=S3Errors.METHOD_NOT_ALLOWED,
                     resource=path,
                 ).to_response()
-            else:
-                response = await self._dispatch(s3_req.operation, s3_req.bucket or "", s3_req.key, receive, headers)
-        except Exception as exc:
-            logger.exception("Unhandled error in S3 proxy", error=str(exc))
-            response = S3ErrorResponse(
-                error_code=S3Errors.INTERNAL_ERROR,
-                resource=path,
-            ).to_response()
+                status_code = getattr(response, "status_code", 405)
+                await response(scope, receive, send)
+                return
 
-        await response(scope, receive, send)
+            # Dispatch
+            try:
+                if s3_req.operation != S3Operation.LIST_BUCKETS and s3_req.bucket is None:
+                    response = S3ErrorResponse(
+                        error_code=S3Errors.INVALID_BUCKET_NAME,
+                        resource=path,
+                    ).to_response()
+                else:
+                    response = await self._dispatch(s3_req.operation, s3_req.bucket or "", s3_req.key, receive, headers)
+            except Exception as exc:
+                logger.exception("Unhandled error in S3 proxy", error=str(exc))
+                response = S3ErrorResponse(
+                    error_code=S3Errors.INTERNAL_ERROR,
+                    resource=path,
+                ).to_response()
+
+            status_code = getattr(response, "status_code", 500)
+            await response(scope, receive, send)
+        finally:
+            duration = time.perf_counter() - start_time
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, operation=operation_name).observe(duration)
+            HTTP_REQUESTS_TOTAL.labels(method=method, operation=operation_name, status=status_code).inc()
 
     async def _dispatch(
         self,

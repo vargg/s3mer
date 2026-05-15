@@ -1,7 +1,5 @@
 """FastStream Kafka broker setup."""
 
-from __future__ import annotations
-
 from faststream.kafka import KafkaBroker
 
 from s3m.config.settings import KafkaConfig

@@ -1,7 +1,5 @@
 """Classify incoming HTTP requests into S3 operations."""
 
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 

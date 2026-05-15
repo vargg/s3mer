@@ -1,7 +1,5 @@
 """S3 XML response builders for successful operations."""
 
-from __future__ import annotations
-
 from datetime import UTC, datetime
 
 

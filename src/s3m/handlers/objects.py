@@ -1,7 +1,5 @@
 """HTTP handlers for S3 object operations."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from s3m.backends.pool import BackendPool
@@ -40,7 +38,7 @@ async def handle_put_object(
         if "VersionId" in response:
             headers["x-amz-version-id"] = response["VersionId"]
 
-        return ASGIResponse(content="", status_code=200, headers=headers)
+        return ASGIResponse(content=b"", status_code=200, headers=headers)
     except Exception as exc:
         logger.exception("PutObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
@@ -97,7 +95,7 @@ async def handle_delete_object(
         if "VersionId" in response:
             headers["x-amz-version-id"] = response["VersionId"]
 
-        return ASGIResponse(content="", status_code=204, headers=headers)
+        return ASGIResponse(content=b"", status_code=204, headers=headers)
     except Exception as exc:
         logger.exception("DeleteObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
@@ -124,7 +122,7 @@ async def handle_head_object(
         if "LastModified" in response:
             headers["Last-Modified"] = response["LastModified"].strftime("%a, %d %b %Y %H:%M:%S GMT")
 
-        return ASGIResponse(content="", status_code=200, headers=headers)
+        return ASGIResponse(content=b"", status_code=200, headers=headers)
     except Exception as exc:
         logger.exception("HeadObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()

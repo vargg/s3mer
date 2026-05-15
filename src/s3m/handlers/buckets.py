@@ -1,7 +1,5 @@
 """HTTP handlers for S3 bucket operations."""
 
-from __future__ import annotations
-
 from s3m.backends.pool import BackendPool
 from s3m.common.errors import S3ErrorResponse
 from s3m.common.logging import get_logger
@@ -24,7 +22,7 @@ async def handle_create_bucket(
         params = {"Bucket": bucket}
         await write_strategy.execute(S3Operation.CREATE_BUCKET, pool, params)
         return ASGIResponse(
-            content="",
+            content=b"",
             status_code=200,
             headers={"Location": f"/{bucket}"},
         )
@@ -42,7 +40,7 @@ async def handle_delete_bucket(
     try:
         params = {"Bucket": bucket}
         await write_strategy.execute(S3Operation.DELETE_BUCKET, pool, params)
-        return ASGIResponse(content="", status_code=204)
+        return ASGIResponse(content=b"", status_code=204)
     except Exception as exc:
         logger.exception("DeleteBucket failed", bucket=bucket, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()
@@ -57,7 +55,7 @@ async def handle_head_bucket(
     try:
         params = {"Bucket": bucket}
         await read_strategy.execute(S3Operation.HEAD_BUCKET, pool, params)
-        return ASGIResponse(content="", status_code=200)
+        return ASGIResponse(content=b"", status_code=200)
     except Exception as exc:
         logger.exception("HeadBucket failed", bucket=bucket, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()
@@ -84,7 +82,7 @@ async def handle_list_buckets(
         ]
 
         xml = list_buckets_xml(bucket_list)
-        return ASGIResponse(content=xml, status_code=200)
+        return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("ListBuckets failed", error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource="/").to_response()

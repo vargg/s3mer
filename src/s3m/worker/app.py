@@ -1,7 +1,5 @@
 """Standalone FastStream worker application for async replication."""
 
-from __future__ import annotations
-
 import asyncio
 
 from faststream import FastStream
