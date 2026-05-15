@@ -49,6 +49,38 @@ class TestClassifyRequest:
         assert result.bucket == "bucket"
         assert result.key == "a/b/c/d.txt"
 
+    def test_create_multipart_upload(self) -> None:
+        result = classify_request("POST", "/my-bucket/photos/cat.jpg", b"uploads=")
+        assert result == S3Request(
+            operation=S3Operation.CREATE_MULTIPART_UPLOAD,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_upload_part(self) -> None:
+        result = classify_request("PUT", "/my-bucket/photos/cat.jpg", b"partNumber=1&uploadId=123")
+        assert result == S3Request(
+            operation=S3Operation.UPLOAD_PART,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_complete_multipart_upload(self) -> None:
+        result = classify_request("POST", "/my-bucket/photos/cat.jpg", b"uploadId=123")
+        assert result == S3Request(
+            operation=S3Operation.COMPLETE_MULTIPART_UPLOAD,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_abort_multipart_upload(self) -> None:
+        result = classify_request("DELETE", "/my-bucket/photos/cat.jpg", b"uploadId=123")
+        assert result == S3Request(
+            operation=S3Operation.ABORT_MULTIPART_UPLOAD,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
     # --- Bucket operations ---
 
     def test_create_bucket(self) -> None:

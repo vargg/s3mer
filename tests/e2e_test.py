@@ -93,6 +93,65 @@ def _test_worker_replication():
 
         # Clean up
         proxy_client.delete_object(Bucket=bucket, Key=key)
+
+        # Test ListObjectsV2 before deleting bucket
+        print("Testing ListObjectsV2...")
+        proxy_client.put_object(Bucket=bucket, Key="folder/item1.txt", Body=b"1")
+        proxy_client.put_object(Bucket=bucket, Key="folder/item2.txt", Body=b"2")
+
+        list_resp = proxy_client.list_objects_v2(Bucket=bucket, Prefix="folder/")
+        assert list_resp["KeyCount"] == 2
+        assert list_resp["Contents"][0]["Key"] == "folder/item1.txt"
+        print("  ListObjectsV2 OK")
+
+        proxy_client.delete_object(Bucket=bucket, Key="folder/item1.txt")
+        proxy_client.delete_object(Bucket=bucket, Key="folder/item2.txt")
+
+        # Test Multipart Upload
+        print("Testing Multipart Upload via Proxy...")
+        uuid_str = uuid.uuid4().hex
+        mp_key = f"multipart-{uuid_str}.txt"
+        mp = proxy_client.create_multipart_upload(Bucket=bucket, Key=mp_key)
+        upload_id = mp["UploadId"]
+
+        part1 = proxy_client.upload_part(Bucket=bucket, Key=mp_key, PartNumber=1, UploadId=upload_id, Body=b"Hello ")
+        part2 = proxy_client.upload_part(Bucket=bucket, Key=mp_key, PartNumber=2, UploadId=upload_id, Body=b"World!")
+
+        proxy_client.complete_multipart_upload(
+            Bucket=bucket,
+            Key=mp_key,
+            UploadId=upload_id,
+            MultipartUpload={
+                "Parts": [
+                    {"ETag": part1["ETag"], "PartNumber": 1},
+                    {"ETag": part2["ETag"], "PartNumber": 2},
+                ]
+            }
+        )
+
+        # Verify multipart object exists and is complete
+        resp = proxy_client.get_object(Bucket=bucket, Key=mp_key)
+        assert resp["Body"].read() == b"Hello World!"
+        print("  Multipart Upload OK")
+
+        # Wait for worker to replicate the fully assembled multipart object
+        print("Waiting for worker to replicate assembled multipart object...")
+        mp_success = False
+        for _ in range(30):
+            try:
+                resp = secondary_client.head_object(Bucket=bucket, Key=mp_key)
+                mp_success = True
+                break
+            except Exception:
+                time.sleep(1)
+
+        if mp_success:
+            print("✅ Multipart object successfully replicated to secondary backend!")
+        else:
+            print("❌ Failed to replicate multipart object")
+            sys.exit(1)
+
+        proxy_client.delete_object(Bucket=bucket, Key=mp_key)
         proxy_client.delete_bucket(Bucket=bucket)
 
         # Give worker a moment to replicate deletion

@@ -1,9 +1,7 @@
 """Async streaming utilities for proxying S3 object bodies."""
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 # Default chunk size: 64 KB — good balance between throughput and memory
 DEFAULT_CHUNK_SIZE = 65_536
@@ -41,3 +39,39 @@ async def collect_request_body(
     """
     chunks: list[bytes] = [chunk async for chunk in body_iterator]
     return b"".join(chunks)
+
+
+class ASGIStreamReader:
+    """An async stream reader that reads from the ASGI receive channel."""
+
+    def __init__(self, receive: Any) -> None:
+        self.receive = receive
+        self._buffer = bytearray()
+        self._more_body = True
+
+    async def read(self, n: int = -1) -> bytes:
+        if n == -1:
+            chunks = [self._buffer]
+            while self._more_body:
+                msg = await self.receive()
+                if msg["type"] == "http.request":
+                    chunks.append(msg.get("body", b""))
+                    self._more_body = msg.get("more_body", False)
+                elif msg["type"] == "http.disconnect":
+                    self._more_body = False
+                    break
+            self._buffer.clear()
+            return b"".join(chunks)
+
+        while len(self._buffer) < n and self._more_body:
+            msg = await self.receive()
+            if msg["type"] == "http.request":
+                self._buffer.extend(msg.get("body", b""))
+                self._more_body = msg.get("more_body", False)
+            elif msg["type"] == "http.disconnect":
+                self._more_body = False
+                break
+
+        chunk = bytes(self._buffer[:n])
+        del self._buffer[:n]
+        return chunk

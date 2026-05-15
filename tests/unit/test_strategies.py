@@ -137,6 +137,46 @@ class TestWritePrimaryReplicationStrategy:
         assert msg.source_backend == "primary"
         assert "secondary" in msg.target_backends
 
+    async def test_publishes_replication_message_for_complete_multipart(
+        self,
+        strategy: WritePrimaryReplicationStrategy,
+        publisher: AsyncMock,
+    ) -> None:
+        primary = _make_mock_client("primary", is_primary=True)
+        primary.execute.return_value = {"ETag": '"abc123"'}
+        secondary = _make_mock_client("secondary")
+
+        pool = _make_mock_pool([primary, secondary])
+
+        await strategy.execute(
+            S3Operation.COMPLETE_MULTIPART_UPLOAD, pool, {"Bucket": "b", "Key": "k", "UploadId": "123"}, replicate=True
+        )
+
+        publisher.publish.assert_called_once()
+        msg = publisher.publish.call_args[0][0]
+        assert msg.operation == "put_object"
+        assert msg.bucket == "b"
+        assert msg.key == "k"
+        assert msg.source_backend == "primary"
+        assert "secondary" in msg.target_backends
+
+    async def test_does_not_publish_when_replicate_false(
+        self,
+        strategy: WritePrimaryReplicationStrategy,
+        publisher: AsyncMock,
+    ) -> None:
+        primary = _make_mock_client("primary", is_primary=True)
+        primary.execute.return_value = {"ETag": '"abc123"'}
+        secondary = _make_mock_client("secondary")
+
+        pool = _make_mock_pool([primary, secondary])
+
+        await strategy.execute(
+            S3Operation.CREATE_MULTIPART_UPLOAD, pool, {"Bucket": "b", "Key": "k"}, replicate=False
+        )
+
+        publisher.publish.assert_not_called()
+
     async def test_raises_on_primary_failure(
         self,
         strategy: WritePrimaryReplicationStrategy,

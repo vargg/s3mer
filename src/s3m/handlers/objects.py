@@ -1,12 +1,16 @@
 """HTTP handlers for S3 object operations."""
 
+import re
 from typing import Any
+from urllib.parse import parse_qsl
+from xml.etree import ElementTree as ET
 
 from s3m.backends.pool import BackendPool
 from s3m.common.errors import S3ErrorResponse
 from s3m.common.logging import get_logger
 from s3m.common.responses import ASGIResponse, ASGIStreamingResponse
 from s3m.common.streaming import stream_s3_body
+from s3m.common.xml import complete_multipart_upload_xml, create_multipart_upload_xml
 from s3m.routing.operations import S3Operation
 from s3m.strategies.read import ReadFallbackStrategy
 from s3m.strategies.write import WritePrimaryReplicationStrategy
@@ -17,10 +21,11 @@ logger = get_logger(__name__)
 async def handle_put_object(
     bucket: str,
     key: str,
-    body: bytes,
+    body: Any,
     pool: BackendPool,
     write_strategy: WritePrimaryReplicationStrategy,
     content_type: str = "application/octet-stream",
+    content_length: int | None = None,
 ) -> ASGIResponse:
     """Handle PUT /{bucket}/{key} — PutObject."""
     try:
@@ -30,6 +35,8 @@ async def handle_put_object(
             "Body": body,
             "ContentType": content_type,
         }
+        if content_length is not None:
+            params["ContentLength"] = content_length
         response = await write_strategy.execute(S3Operation.PUT_OBJECT, pool, params)
 
         headers: dict[str, str] = {}
@@ -125,4 +132,137 @@ async def handle_head_object(
         return ASGIResponse(content=b"", status_code=200, headers=headers)
     except Exception as exc:
         logger.exception("HeadObject failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_create_multipart_upload(
+    bucket: str,
+    key: str,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+    headers: dict[str, str],
+) -> ASGIResponse:
+    """Handle POST /{bucket}/{key}?uploads — CreateMultipartUpload."""
+    try:
+        params = {"Bucket": bucket, "Key": key}
+        content_type = headers.get("content-type")
+        if content_type:
+            params["ContentType"] = content_type
+
+        response = await write_strategy.execute(S3Operation.CREATE_MULTIPART_UPLOAD, pool, params, replicate=False)
+
+        upload_id = response.get("UploadId", "")
+        xml = create_multipart_upload_xml(bucket, key, upload_id)
+
+        return ASGIResponse(content=xml.encode(), status_code=200)
+    except Exception as exc:
+        logger.exception("CreateMultipartUpload failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_upload_part(
+    bucket: str,
+    key: str,
+    body: Any,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+    query_string: bytes,
+    content_length: int | None = None,
+) -> ASGIResponse:
+    """Handle PUT /{bucket}/{key}?partNumber=X&uploadId=Y — UploadPart."""
+    try:
+        query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
+
+        params: dict[str, Any] = {
+            "Bucket": bucket,
+            "Key": key,
+            "Body": body,
+            "PartNumber": int(query.get("partNumber", 0)),
+            "UploadId": query.get("uploadId", ""),
+        }
+        if content_length is not None:
+            params["ContentLength"] = content_length
+
+        response = await write_strategy.execute(S3Operation.UPLOAD_PART, pool, params, replicate=False)
+
+        headers: dict[str, str] = {}
+        if "ETag" in response:
+            headers["ETag"] = response["ETag"]
+
+        return ASGIResponse(content=b"", status_code=200, headers=headers)
+    except Exception as exc:
+        logger.exception("UploadPart failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_complete_multipart_upload(
+    bucket: str,
+    key: str,
+    body: bytes,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+    query_string: bytes,
+) -> ASGIResponse:
+    """Handle POST /{bucket}/{key}?uploadId=Y — CompleteMultipartUpload."""
+    try:
+        query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
+        upload_id = query.get("uploadId", "")
+
+        # Parse the CompleteMultipartUpload XML payload
+        parts = []
+        if body:
+            root = ET.fromstring(body.decode("utf-8"))  # noqa: S314
+            # xmlns can make tags like {http://s3.amazonaws.com/doc/2006-03-01/}Part
+            for part in root.findall(".//Part") or root.findall(".//*[@name='Part']") or root:
+                # simple un-namespaced parsing for fallback
+                if part.tag.endswith("Part"):
+                    p_num = part.find(".//PartNumber")
+                    p_num = p_num if p_num is not None else part.find("*[local-name()='PartNumber']")
+                    etag = part.find(".//ETag")
+                    etag = etag if etag is not None else part.find("*[local-name()='ETag']")
+
+                    # Alternatively, strip namespaces
+                    part_str = ET.tostring(part, encoding="unicode")
+                    part_num_m = re.search(r"<PartNumber>(\d+)</PartNumber>", part_str)
+                    etag_m = re.search(r"<ETag>(.+?)</ETag>", part_str)
+
+                    if part_num_m and etag_m:
+                        parts.append({"PartNumber": int(part_num_m.group(1)), "ETag": etag_m.group(1)})
+
+        params = {"Bucket": bucket, "Key": key, "UploadId": upload_id, "MultipartUpload": {"Parts": parts}}
+
+        # replicate=True here because the object is fully assembled!
+        response = await write_strategy.execute(S3Operation.COMPLETE_MULTIPART_UPLOAD, pool, params, replicate=True)
+
+        etag = response.get("ETag", "")
+        location = response.get("Location", f"/{bucket}/{key}")
+        xml = complete_multipart_upload_xml(bucket, key, etag, location)
+
+        return ASGIResponse(content=xml.encode(), status_code=200)
+    except Exception as exc:
+        logger.exception("CompleteMultipartUpload failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_abort_multipart_upload(
+    bucket: str,
+    key: str,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+    query_string: bytes,
+) -> ASGIResponse:
+    """Handle DELETE /{bucket}/{key}?uploadId=Y — AbortMultipartUpload."""
+    try:
+        query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
+
+        params = {
+            "Bucket": bucket,
+            "Key": key,
+            "UploadId": query.get("uploadId", ""),
+        }
+
+        await write_strategy.execute(S3Operation.ABORT_MULTIPART_UPLOAD, pool, params, replicate=False)
+        return ASGIResponse(content=b"", status_code=204)
+    except Exception as exc:
+        logger.exception("AbortMultipartUpload failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()

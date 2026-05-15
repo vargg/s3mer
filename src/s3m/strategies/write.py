@@ -26,14 +26,17 @@ class WritePrimaryReplicationStrategy:
         operation: S3Operation,
         pool: BackendPool,
         params: dict[str, Any],
+        *,
+        replicate: bool = True,
     ) -> dict[str, Any]:
         """
-        Execute a write operation: primary sync + Kafka replication.
+        Execute a write operation: primary sync + optional Kafka replication.
 
         Args:
             operation: The write operation (PutObject, CreateBucket, etc.).
             pool: Backend pool.
             params: Boto3 method parameters (including Body for PutObject).
+            replicate: Whether to publish a replication message.
 
         Returns:
             The primary backend's response dict.
@@ -53,6 +56,9 @@ class WritePrimaryReplicationStrategy:
             key=params.get("Key"),
         )
 
+        if not replicate:
+            return response
+
         # 2. Publish replication message for secondary backends
         secondaries = pool.get_secondaries()
         if secondaries:
@@ -65,8 +71,14 @@ class WritePrimaryReplicationStrategy:
             if "ContentLength" in params:
                 metadata["ContentLength"] = params["ContentLength"]
 
+            # If we're completing a multipart upload, the replication operation should actually be PUT_OBJECT
+            # so the worker can just read the fully assembled object.
+            rep_op = (
+                S3Operation.PUT_OBJECT.value if operation == S3Operation.COMPLETE_MULTIPART_UPLOAD else operation.value
+            )
+
             message = ReplicationMessage(
-                operation=operation.value,
+                operation=rep_op,
                 bucket=params.get("Bucket", ""),
                 key=params.get("Key"),
                 source_backend=primary.name,
@@ -76,9 +88,11 @@ class WritePrimaryReplicationStrategy:
             await self._publisher.publish(message)
             logger.info(
                 "Replication message published",
-                operation=operation.value,
+                operation=rep_op,
                 targets=[b.name for b in secondaries],
                 message_id=message.message_id,
             )
+
+        return response
 
         return response

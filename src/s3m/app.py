@@ -12,18 +12,24 @@ from s3m.common.metrics import (
     health_handler,
     metrics_handler,
 )
+from s3m.common.streaming import ASGIStreamReader
 from s3m.config.settings import load_settings
 from s3m.handlers.buckets import (
     handle_create_bucket,
     handle_delete_bucket,
     handle_head_bucket,
     handle_list_buckets,
+    handle_list_objects_v2,
 )
 from s3m.handlers.objects import (
+    handle_abort_multipart_upload,
+    handle_complete_multipart_upload,
+    handle_create_multipart_upload,
     handle_delete_object,
     handle_get_object,
     handle_head_object,
     handle_put_object,
+    handle_upload_part,
 )
 from s3m.kafka.broker import create_broker
 from s3m.kafka.publisher import ReplicationPublisher
@@ -140,7 +146,8 @@ class S3ProxyApp:
         try:
             # Classify
             try:
-                s3_req = classify_request(method, path)
+                query_string = scope.get("query_string", b"")
+                s3_req = classify_request(method, path, query_string)
                 operation_name = s3_req.operation.value
             except ValueError:
                 response = S3ErrorResponse(
@@ -159,7 +166,9 @@ class S3ProxyApp:
                         resource=path,
                     ).to_response()
                 else:
-                    response = await self._dispatch(s3_req.operation, s3_req.bucket or "", s3_req.key, receive, headers)
+                    response = await self._dispatch(
+                        s3_req.operation, s3_req.bucket or "", s3_req.key, receive, headers, query_string
+                    )
             except Exception as exc:
                 logger.exception("Unhandled error in S3 proxy", error=str(exc))
                 response = S3ErrorResponse(
@@ -181,6 +190,7 @@ class S3ProxyApp:
         key: str | None,
         receive: Any,
         headers: dict[str, str],
+        query_string: bytes,
     ) -> Any:
         """Dispatch an S3 operation to the appropriate handler.
 
@@ -207,9 +217,20 @@ class S3ProxyApp:
                 return await handle_head_bucket(bucket, pool, read_strategy)
             case S3Operation.LIST_BUCKETS:
                 return await handle_list_buckets(pool, read_strategy)
+            case S3Operation.LIST_OBJECTS_V2:
+                return await handle_list_objects_v2(bucket, pool, read_strategy, query_string)
 
             # Object operations — key is required
-            case S3Operation.PUT_OBJECT | S3Operation.GET_OBJECT | S3Operation.DELETE_OBJECT | S3Operation.HEAD_OBJECT:
+            case (
+                S3Operation.PUT_OBJECT
+                | S3Operation.GET_OBJECT
+                | S3Operation.DELETE_OBJECT
+                | S3Operation.HEAD_OBJECT
+                | S3Operation.CREATE_MULTIPART_UPLOAD
+                | S3Operation.UPLOAD_PART
+                | S3Operation.COMPLETE_MULTIPART_UPLOAD
+                | S3Operation.ABORT_MULTIPART_UPLOAD
+            ):
                 if key is None:
                     return S3ErrorResponse(
                         error_code=S3Errors.NO_SUCH_KEY,
@@ -225,6 +246,7 @@ class S3ProxyApp:
                     pool,
                     read_strategy,
                     write_strategy,
+                    query_string,
                 )
 
             case _:
@@ -243,19 +265,34 @@ class S3ProxyApp:
         pool: BackendPool,
         read_strategy: ReadFallbackStrategy,
         write_strategy: WritePrimaryReplicationStrategy,
+        query_string: bytes,
     ) -> Any:
         """Dispatch object-level operations (key is guaranteed non-None)."""
         match operation:
             case S3Operation.PUT_OBJECT:
-                body = await _read_body(receive)
+                content_length_str = headers.get("content-length")
+                content_length = int(content_length_str) if content_length_str else None
+                body = ASGIStreamReader(receive)
                 content_type = headers.get("content-type", "application/octet-stream")
-                return await handle_put_object(bucket, key, body, pool, write_strategy, content_type)
+                return await handle_put_object(bucket, key, body, pool, write_strategy, content_type, content_length)
             case S3Operation.GET_OBJECT:
                 return await handle_get_object(bucket, key, pool, read_strategy)
             case S3Operation.DELETE_OBJECT:
                 return await handle_delete_object(bucket, key, pool, write_strategy)
             case S3Operation.HEAD_OBJECT:
                 return await handle_head_object(bucket, key, pool, read_strategy)
+            case S3Operation.CREATE_MULTIPART_UPLOAD:
+                return await handle_create_multipart_upload(bucket, key, pool, write_strategy, headers)
+            case S3Operation.UPLOAD_PART:
+                content_length_str = headers.get("content-length")
+                content_length = int(content_length_str) if content_length_str else None
+                body = ASGIStreamReader(receive)
+                return await handle_upload_part(bucket, key, body, pool, write_strategy, query_string, content_length)
+            case S3Operation.COMPLETE_MULTIPART_UPLOAD:
+                body = await _read_body(receive)
+                return await handle_complete_multipart_upload(bucket, key, body, pool, write_strategy, query_string)
+            case S3Operation.ABORT_MULTIPART_UPLOAD:
+                return await handle_abort_multipart_upload(bucket, key, pool, write_strategy, query_string)
             case _:  # pragma: no cover
                 return S3ErrorResponse(
                     error_code=S3Errors.METHOD_NOT_ALLOWED,

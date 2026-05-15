@@ -57,3 +57,60 @@ def delete_result_xml(deleted_keys: list[str], errors: list[dict] | None = None)
 
     parts.append("</DeleteResult>")
     return "\n".join(parts)
+
+
+def list_objects_v2_xml(bucket: str, response: dict) -> str:
+    """Build ListObjectsV2 XML response."""
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">',
+        f"  <Name>{bucket}</Name>",
+    ]
+
+    for key in ["Prefix", "KeyCount", "MaxKeys", "IsTruncated", "ContinuationToken", "NextContinuationToken"]:
+        if key in response:
+            val = str(response[key]).lower() if isinstance(response[key], bool) else str(response[key])
+            parts.append(f"  <{key}>{val}</{key}>")
+
+    for obj in response.get("Contents", []):
+        parts.append("  <Contents>")
+        parts.append(f"    <Key>{obj['Key']}</Key>")
+        if "LastModified" in obj:
+            lm = obj["LastModified"]
+            lm_str = lm.isoformat() if hasattr(lm, "isoformat") else str(lm)
+            parts.append(f"    <LastModified>{lm_str}</LastModified>")
+        if "ETag" in obj:
+            parts.append(f"    <ETag>{obj['ETag']}</ETag>")
+        if "Size" in obj:
+            parts.append(f"    <Size>{obj['Size']}</Size>")
+        if "StorageClass" in obj:
+            parts.append(f"    <StorageClass>{obj['StorageClass']}</StorageClass>")
+        parts.append("  </Contents>")
+
+    parts.append("</ListBucketResult>")
+    return "\n".join(parts)
+
+
+def create_multipart_upload_xml(bucket: str, key: str, upload_id: str) -> str:
+    """Build InitiateMultipartUploadResult XML."""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">\n'
+        f"  <Bucket>{bucket}</Bucket>\n"
+        f"  <Key>{key}</Key>\n"
+        f"  <UploadId>{upload_id}</UploadId>\n"
+        "</InitiateMultipartUploadResult>"
+    )
+
+
+def complete_multipart_upload_xml(bucket: str, key: str, etag: str, location: str = "") -> str:
+    """Build CompleteMultipartUploadResult XML."""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">\n'
+        f"  <Location>{location}</Location>\n"
+        f"  <Bucket>{bucket}</Bucket>\n"
+        f"  <Key>{key}</Key>\n"
+        f"  <ETag>{etag}</ETag>\n"
+        "</CompleteMultipartUploadResult>"
+    )

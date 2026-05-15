@@ -1,10 +1,12 @@
 """HTTP handlers for S3 bucket operations."""
 
+from urllib.parse import parse_qsl
+
 from s3m.backends.pool import BackendPool
 from s3m.common.errors import S3ErrorResponse
 from s3m.common.logging import get_logger
 from s3m.common.responses import ASGIResponse
-from s3m.common.xml import list_buckets_xml
+from s3m.common.xml import list_buckets_xml, list_objects_v2_xml
 from s3m.routing.operations import S3Operation
 from s3m.strategies.read import ReadFallbackStrategy
 from s3m.strategies.write import WritePrimaryReplicationStrategy
@@ -86,3 +88,34 @@ async def handle_list_buckets(
     except Exception as exc:
         logger.exception("ListBuckets failed", error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource="/").to_response()
+
+
+async def handle_list_objects_v2(
+    bucket: str,
+    pool: BackendPool,
+    read_strategy: ReadFallbackStrategy,
+    query_string: bytes,
+) -> ASGIResponse:
+    """Handle GET /{bucket}?list-type=2 — ListObjectsV2."""
+    try:
+        query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
+
+        params: dict[str, str] = {"Bucket": bucket}
+
+        # Pass relevant query params to backend
+        if "prefix" in query:
+            params["Prefix"] = query["prefix"]
+        if "max-keys" in query:
+            params["MaxKeys"] = query["max-keys"]  # type: ignore[assignment]
+        if "continuation-token" in query:
+            params["ContinuationToken"] = query["continuation-token"]
+
+        # We'll just call the backend and pass parameters
+        response = await read_strategy.execute(S3Operation.LIST_OBJECTS_V2, pool, params)
+
+        xml = list_objects_v2_xml(bucket, response)
+
+        return ASGIResponse(content=xml.encode(), status_code=200)
+    except Exception as exc:
+        logger.exception("ListObjectsV2 failed", bucket=bucket, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()

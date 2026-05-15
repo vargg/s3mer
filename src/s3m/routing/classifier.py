@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from urllib.parse import parse_qsl
 
 from s3m.routing.operations import S3Operation
 
@@ -22,24 +23,28 @@ _ROUTE_PATTERNS: list[tuple[str, re.Pattern[str], S3Operation]] = [
     ("GET", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.GET_OBJECT),
     ("DELETE", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.DELETE_OBJECT),
     ("HEAD", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.HEAD_OBJECT),
+    ("POST", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.POST_OBJECT),
     # Bucket operations: /{bucket}
     ("PUT", re.compile(r"^/([^/]+)/?$"), S3Operation.CREATE_BUCKET),
     ("DELETE", re.compile(r"^/([^/]+)/?$"), S3Operation.DELETE_BUCKET),
     ("HEAD", re.compile(r"^/([^/]+)/?$"), S3Operation.HEAD_BUCKET),
+    ("GET", re.compile(r"^/([^/]+)/?$"), S3Operation.LIST_OBJECTS_V2),
     # Service operations: /
     ("GET", re.compile(r"^/?$"), S3Operation.LIST_BUCKETS),
 ]
 
 
-def classify_request(method: str, path: str) -> S3Request:
+def classify_request(method: str, path: str, query_string: bytes = b"") -> S3Request:
     """
     Classify an HTTP request into an S3 operation.
 
     Uses path-style URL parsing: /{bucket}/{key}
+    And parses query string to determine operation subtypes.
 
     Args:
         method: HTTP method (GET, PUT, DELETE, HEAD).
         path: URL path (e.g., "/my-bucket/photos/cat.jpg").
+        query_string: Raw ASGI query string bytes.
 
     Returns:
         Parsed S3Request with operation, bucket, and key.
@@ -48,8 +53,9 @@ def classify_request(method: str, path: str) -> S3Request:
         ValueError: If the request cannot be mapped to a known S3 operation.
     """
     method = method.upper()
+    query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
 
-    for route_method, pattern, operation in _ROUTE_PATTERNS:
+    for route_method, pattern, base_operation in _ROUTE_PATTERNS:
         if method != route_method:
             continue
 
@@ -60,6 +66,24 @@ def classify_request(method: str, path: str) -> S3Request:
         groups = match.groups()
         bucket = groups[0] if len(groups) > 0 else None
         key = groups[1] if len(groups) > 1 else None
+
+        # Refine operation based on query parameters
+        operation = base_operation
+
+        if base_operation == S3Operation.POST_OBJECT:
+            if "uploads" in query:
+                operation = S3Operation.CREATE_MULTIPART_UPLOAD
+            elif "uploadId" in query:
+                operation = S3Operation.COMPLETE_MULTIPART_UPLOAD
+            else:
+                msg = f"Cannot classify POST request without uploads or uploadId: {path}"
+                raise ValueError(msg)
+
+        elif base_operation == S3Operation.PUT_OBJECT and "partNumber" in query and "uploadId" in query:
+            operation = S3Operation.UPLOAD_PART
+
+        elif base_operation == S3Operation.DELETE_OBJECT and "uploadId" in query:
+            operation = S3Operation.ABORT_MULTIPART_UPLOAD
 
         return S3Request(operation=operation, bucket=bucket, key=key)
 

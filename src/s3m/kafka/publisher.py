@@ -1,12 +1,9 @@
 """Replication message publisher — thin wrapper around FastStream publisher."""
 
-from typing import TYPE_CHECKING
+from faststream.kafka import KafkaBroker
 
 from s3m.common.logging import get_logger
 from s3m.kafka.messages import ReplicationMessage
-
-if TYPE_CHECKING:
-    from faststream.kafka import KafkaBroker
 
 logger = get_logger(__name__)
 

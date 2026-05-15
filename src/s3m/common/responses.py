@@ -3,10 +3,8 @@
 These are standalone — no framework dependency.
 """
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 
 class ASGIResponse:

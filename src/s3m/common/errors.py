@@ -2,7 +2,7 @@
 
 import uuid
 from dataclasses import dataclass, field
-from typing import ClassVar
+from typing import ClassVar, Self
 
 from s3m.common.responses import ASGIResponse
 
@@ -92,7 +92,7 @@ class S3ErrorResponse:
         cls,
         error: Exception,
         resource: str | None = None,
-    ) -> S3ErrorResponse:
+    ) -> Self:
         """
         Create an S3ErrorResponse from a botocore ClientError.
 
