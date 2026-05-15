@@ -21,6 +21,11 @@ class WritePrimaryReplicationStrategy:
     def __init__(self, publisher: ReplicationPublisher) -> None:
         self._publisher = publisher
 
+    @property
+    def publisher(self) -> ReplicationPublisher:
+        """Get the replication publisher."""
+        return self._publisher
+
     async def execute(
         self,
         operation: S3Operation,
@@ -71,10 +76,13 @@ class WritePrimaryReplicationStrategy:
             if "ContentLength" in params:
                 metadata["ContentLength"] = params["ContentLength"]
 
-            # If we're completing a multipart upload, the replication operation should actually be PUT_OBJECT
-            # so the worker can just read the fully assembled object.
+            # If we're completing a multipart upload or copying an object,
+            # the replication operation should actually be PUT_OBJECT
+            # so the worker can just read the fully assembled/copied object.
             rep_op = (
-                S3Operation.PUT_OBJECT.value if operation == S3Operation.COMPLETE_MULTIPART_UPLOAD else operation.value
+                S3Operation.PUT_OBJECT.value
+                if operation in (S3Operation.COMPLETE_MULTIPART_UPLOAD, S3Operation.COPY_OBJECT)
+                else operation.value
             )
 
             message = ReplicationMessage(

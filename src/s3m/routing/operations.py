@@ -23,6 +23,8 @@ class S3Operation(StrEnum):
     DELETE_BUCKET = "delete_bucket"
     HEAD_BUCKET = "head_bucket"
     LIST_BUCKETS = "list_buckets"
+    DELETE_OBJECTS = "delete_objects"
+    LIST_OBJECTS = "list_objects"
 
     # Object operations
     PUT_OBJECT = "put_object"
@@ -30,6 +32,7 @@ class S3Operation(StrEnum):
     DELETE_OBJECT = "delete_object"
     HEAD_OBJECT = "head_object"
     POST_OBJECT = "post_object"
+    COPY_OBJECT = "copy_object"
 
     # Multipart operations
     CREATE_MULTIPART_UPLOAD = "create_multipart_upload"
@@ -74,11 +77,14 @@ _OPERATION_TYPES: dict[S3Operation, OperationType] = {
     S3Operation.DELETE_BUCKET: OperationType.WRITE,
     S3Operation.HEAD_BUCKET: OperationType.READ,
     S3Operation.LIST_BUCKETS: OperationType.READ,
+    S3Operation.DELETE_OBJECTS: OperationType.WRITE,
+    S3Operation.LIST_OBJECTS: OperationType.READ,
     S3Operation.PUT_OBJECT: OperationType.WRITE,
     S3Operation.GET_OBJECT: OperationType.READ,
     S3Operation.DELETE_OBJECT: OperationType.WRITE,
     S3Operation.HEAD_OBJECT: OperationType.READ,
     S3Operation.POST_OBJECT: OperationType.WRITE,
+    S3Operation.COPY_OBJECT: OperationType.WRITE,
     S3Operation.CREATE_MULTIPART_UPLOAD: OperationType.WRITE,
     S3Operation.UPLOAD_PART: OperationType.WRITE,
     S3Operation.COMPLETE_MULTIPART_UPLOAD: OperationType.WRITE,
@@ -93,6 +99,7 @@ _OBJECT_OPERATIONS: frozenset[S3Operation] = frozenset(
         S3Operation.DELETE_OBJECT,
         S3Operation.HEAD_OBJECT,
         S3Operation.POST_OBJECT,
+        S3Operation.COPY_OBJECT,
         S3Operation.CREATE_MULTIPART_UPLOAD,
         S3Operation.UPLOAD_PART,
         S3Operation.COMPLETE_MULTIPART_UPLOAD,

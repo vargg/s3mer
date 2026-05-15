@@ -57,7 +57,7 @@ def _test_metrics_health():
     print("  /metrics OK")
 
 
-def _test_worker_replication():
+def _test_worker_replication():  # noqa: PLR0915
     """Verify object is replicated to secondary backend."""
     proxy_client = boto3.client(
         "s3",

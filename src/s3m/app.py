@@ -12,18 +12,21 @@ from s3m.common.metrics import (
     health_handler,
     metrics_handler,
 )
-from s3m.common.streaming import ASGIStreamReader
+from s3m.common.streaming import ASGIStreamReader, AWSChunkedDecoder
 from s3m.config.settings import load_settings
 from s3m.handlers.buckets import (
     handle_create_bucket,
     handle_delete_bucket,
+    handle_delete_objects,
     handle_head_bucket,
     handle_list_buckets,
+    handle_list_objects,
     handle_list_objects_v2,
 )
 from s3m.handlers.objects import (
     handle_abort_multipart_upload,
     handle_complete_multipart_upload,
+    handle_copy_object,
     handle_create_multipart_upload,
     handle_delete_object,
     handle_get_object,
@@ -147,7 +150,7 @@ class S3ProxyApp:
             # Classify
             try:
                 query_string = scope.get("query_string", b"")
-                s3_req = classify_request(method, path, query_string)
+                s3_req = classify_request(method, path, query_string, headers)
                 operation_name = s3_req.operation.value
             except ValueError:
                 response = S3ErrorResponse(
@@ -219,10 +222,16 @@ class S3ProxyApp:
                 return await handle_list_buckets(pool, read_strategy)
             case S3Operation.LIST_OBJECTS_V2:
                 return await handle_list_objects_v2(bucket, pool, read_strategy, query_string)
+            case S3Operation.LIST_OBJECTS:
+                return await handle_list_objects(bucket, pool, read_strategy, query_string)
+            case S3Operation.DELETE_OBJECTS:
+                body = await _read_body(receive)
+                return await handle_delete_objects(bucket, pool, write_strategy, body)
 
             # Object operations — key is required
             case (
                 S3Operation.PUT_OBJECT
+                | S3Operation.COPY_OBJECT
                 | S3Operation.GET_OBJECT
                 | S3Operation.DELETE_OBJECT
                 | S3Operation.HEAD_OBJECT
@@ -255,7 +264,7 @@ class S3ProxyApp:
                     message=f"Operation {operation} not implemented",
                 ).to_response()
 
-    async def _dispatch_object(
+    async def _dispatch_object(  # noqa: PLR0912
         self,
         operation: S3Operation,
         bucket: str,
@@ -273,8 +282,18 @@ class S3ProxyApp:
                 content_length_str = headers.get("content-length")
                 content_length = int(content_length_str) if content_length_str else None
                 body = ASGIStreamReader(receive)
+
+                if headers.get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
+                    body = AWSChunkedDecoder(body)
+                    decoded_length_str = headers.get("x-amz-decoded-content-length")
+                    if decoded_length_str:
+                        content_length = int(decoded_length_str)
+
                 content_type = headers.get("content-type", "application/octet-stream")
                 return await handle_put_object(bucket, key, body, pool, write_strategy, content_type, content_length)
+            case S3Operation.COPY_OBJECT:
+                copy_source = headers.get("x-amz-copy-source", "")
+                return await handle_copy_object(bucket, key, pool, write_strategy, copy_source)
             case S3Operation.GET_OBJECT:
                 return await handle_get_object(bucket, key, pool, read_strategy)
             case S3Operation.DELETE_OBJECT:
@@ -287,6 +306,13 @@ class S3ProxyApp:
                 content_length_str = headers.get("content-length")
                 content_length = int(content_length_str) if content_length_str else None
                 body = ASGIStreamReader(receive)
+
+                if headers.get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
+                    body = AWSChunkedDecoder(body)
+                    decoded_length_str = headers.get("x-amz-decoded-content-length")
+                    if decoded_length_str:
+                        content_length = int(decoded_length_str)
+
                 return await handle_upload_part(bucket, key, body, pool, write_strategy, query_string, content_length)
             case S3Operation.COMPLETE_MULTIPART_UPLOAD:
                 body = await _read_body(receive)

@@ -25,6 +25,7 @@ _ROUTE_PATTERNS: list[tuple[str, re.Pattern[str], S3Operation]] = [
     ("HEAD", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.HEAD_OBJECT),
     ("POST", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.POST_OBJECT),
     # Bucket operations: /{bucket}
+    ("POST", re.compile(r"^/([^/]+)/?$"), S3Operation.DELETE_OBJECTS),
     ("PUT", re.compile(r"^/([^/]+)/?$"), S3Operation.CREATE_BUCKET),
     ("DELETE", re.compile(r"^/([^/]+)/?$"), S3Operation.DELETE_BUCKET),
     ("HEAD", re.compile(r"^/([^/]+)/?$"), S3Operation.HEAD_BUCKET),
@@ -34,7 +35,9 @@ _ROUTE_PATTERNS: list[tuple[str, re.Pattern[str], S3Operation]] = [
 ]
 
 
-def classify_request(method: str, path: str, query_string: bytes = b"") -> S3Request:
+def classify_request(  # noqa: PLR0912
+    method: str, path: str, query_string: bytes = b"", headers: dict[str, str] | None = None
+) -> S3Request:
     """
     Classify an HTTP request into an S3 operation.
 
@@ -45,6 +48,7 @@ def classify_request(method: str, path: str, query_string: bytes = b"") -> S3Req
         method: HTTP method (GET, PUT, DELETE, HEAD).
         path: URL path (e.g., "/my-bucket/photos/cat.jpg").
         query_string: Raw ASGI query string bytes.
+        headers: Optional dictionary of HTTP headers.
 
     Returns:
         Parsed S3Request with operation, bucket, and key.
@@ -79,11 +83,21 @@ def classify_request(method: str, path: str, query_string: bytes = b"") -> S3Req
                 msg = f"Cannot classify POST request without uploads or uploadId: {path}"
                 raise ValueError(msg)
 
-        elif base_operation == S3Operation.PUT_OBJECT and "partNumber" in query and "uploadId" in query:
-            operation = S3Operation.UPLOAD_PART
+        elif base_operation == S3Operation.PUT_OBJECT:
+            if "partNumber" in query and "uploadId" in query:
+                operation = S3Operation.UPLOAD_PART
+            elif headers and "x-amz-copy-source" in headers:
+                operation = S3Operation.COPY_OBJECT
 
         elif base_operation == S3Operation.DELETE_OBJECT and "uploadId" in query:
             operation = S3Operation.ABORT_MULTIPART_UPLOAD
+
+        elif base_operation == S3Operation.DELETE_OBJECTS and "delete" not in query:
+            msg = f"Cannot classify POST request without 'delete' query param: {path}"
+            raise ValueError(msg)
+
+        elif base_operation == S3Operation.LIST_OBJECTS_V2 and ("list-type" not in query or query["list-type"] != "2"):
+            operation = S3Operation.LIST_OBJECTS
 
         return S3Request(operation=operation, bucket=bucket, key=key)
 

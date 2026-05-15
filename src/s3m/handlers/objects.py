@@ -10,7 +10,11 @@ from s3m.common.errors import S3ErrorResponse
 from s3m.common.logging import get_logger
 from s3m.common.responses import ASGIResponse, ASGIStreamingResponse
 from s3m.common.streaming import stream_s3_body
-from s3m.common.xml import complete_multipart_upload_xml, create_multipart_upload_xml
+from s3m.common.xml import (
+    complete_multipart_upload_xml,
+    copy_object_result_xml,
+    create_multipart_upload_xml,
+)
 from s3m.routing.operations import S3Operation
 from s3m.strategies.read import ReadFallbackStrategy
 from s3m.strategies.write import WritePrimaryReplicationStrategy
@@ -211,7 +215,7 @@ async def handle_complete_multipart_upload(
         # Parse the CompleteMultipartUpload XML payload
         parts = []
         if body:
-            root = ET.fromstring(body.decode("utf-8"))  # noqa: S314
+            root = ET.fromstring(body.decode("utf-8"))
             # xmlns can make tags like {http://s3.amazonaws.com/doc/2006-03-01/}Part
             for part in root.findall(".//Part") or root.findall(".//*[@name='Part']") or root:
                 # simple un-namespaced parsing for fallback
@@ -265,4 +269,29 @@ async def handle_abort_multipart_upload(
         return ASGIResponse(content=b"", status_code=204)
     except Exception as exc:
         logger.exception("AbortMultipartUpload failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_copy_object(
+    bucket: str,
+    key: str,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+    copy_source: str,
+) -> ASGIResponse:
+    """Handle PUT /{bucket}/{key} with x-amz-copy-source — CopyObject."""
+    try:
+        source = copy_source.lstrip("/")
+        if not source:
+            msg = "Empty x-amz-copy-source"
+            raise ValueError(msg)  # noqa: TRY301
+
+        params = {"Bucket": bucket, "Key": key, "CopySource": source}
+
+        response = await write_strategy.execute(S3Operation.COPY_OBJECT, pool, params)
+
+        xml = copy_object_result_xml(response.get("CopyObjectResult", response))
+        return ASGIResponse(content=xml.encode(), status_code=200)
+    except Exception as exc:
+        logger.exception("CopyObject failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()

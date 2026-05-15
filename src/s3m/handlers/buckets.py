@@ -1,12 +1,14 @@
 """HTTP handlers for S3 bucket operations."""
 
 from urllib.parse import parse_qsl
+from xml.etree import ElementTree as ET
 
 from s3m.backends.pool import BackendPool
 from s3m.common.errors import S3ErrorResponse
 from s3m.common.logging import get_logger
 from s3m.common.responses import ASGIResponse
-from s3m.common.xml import list_buckets_xml, list_objects_v2_xml
+from s3m.common.xml import delete_result_xml, list_buckets_xml, list_objects_v2_xml, list_objects_xml
+from s3m.kafka.messages import ReplicationMessage
 from s3m.routing.operations import S3Operation
 from s3m.strategies.read import ReadFallbackStrategy
 from s3m.strategies.write import WritePrimaryReplicationStrategy
@@ -118,4 +120,81 @@ async def handle_list_objects_v2(
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("ListObjectsV2 failed", bucket=bucket, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()
+
+
+async def handle_list_objects(
+    bucket: str,
+    pool: BackendPool,
+    read_strategy: ReadFallbackStrategy,
+    query_string: bytes,
+) -> ASGIResponse:
+    """Handle GET /{bucket} — ListObjects (V1)."""
+    try:
+        query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
+
+        params: dict[str, str] = {"Bucket": bucket}
+
+        if "prefix" in query:
+            params["Prefix"] = query["prefix"]
+        if "max-keys" in query:
+            params["MaxKeys"] = query["max-keys"]  # type: ignore[assignment]
+        if "marker" in query:
+            params["Marker"] = query["marker"]
+
+        response = await read_strategy.execute(S3Operation.LIST_OBJECTS, pool, params)
+        xml = list_objects_xml(bucket, response)
+        return ASGIResponse(content=xml.encode(), status_code=200)
+    except Exception as exc:
+        logger.exception("ListObjects failed", bucket=bucket, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()
+
+
+async def handle_delete_objects(
+    bucket: str,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+    body: bytes,
+) -> ASGIResponse:
+    """Handle POST /{bucket}?delete — DeleteObjects."""
+    try:
+        root = ET.fromstring(body.decode("utf-8"))
+
+        objects_to_delete = []
+        for obj_elem in root.findall(".//Object"):
+            key_elem = obj_elem.find("Key")
+            if key_elem is not None and key_elem.text:
+                objects_to_delete.append({"Key": key_elem.text})
+
+        if not objects_to_delete:
+            return ASGIResponse(
+                content=b'<?xml version="1.0" encoding="UTF-8"?><DeleteResult></DeleteResult>', status_code=200
+            )
+
+        params = {"Bucket": bucket, "Delete": {"Objects": objects_to_delete}}
+
+        response = await write_strategy.execute(S3Operation.DELETE_OBJECTS, pool, params, replicate=False)
+
+        # Fan-out replication
+        if write_strategy.publisher:
+            target_backends = [b.name for b in pool.get_secondaries()]
+            if target_backends:
+                for obj in objects_to_delete:
+                    key = obj["Key"]
+                    msg = ReplicationMessage(
+                        operation=S3Operation.DELETE_OBJECT.value,
+                        bucket=bucket,
+                        key=key,
+                        source_backend=pool.primary.name,
+                        target_backends=target_backends,
+                    )
+                    await write_strategy.publisher.publish(msg)
+
+        deleted = [d.get("Key", "") for d in response.get("Deleted", [])]
+        errors = response.get("Errors", [])
+        xml = delete_result_xml(deleted, errors)
+
+        return ASGIResponse(content=xml.encode(), status_code=200)
+    except Exception as exc:
+        logger.exception("DeleteObjects failed", bucket=bucket, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}").to_response()

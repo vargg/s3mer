@@ -19,6 +19,16 @@ class TestClassifyRequest:
             key="photos/cat.jpg",
         )
 
+    def test_copy_object(self) -> None:
+        result = classify_request(
+            "PUT", "/my-bucket/photos/cat.jpg", headers={"x-amz-copy-source": "/other-bucket/cat.jpg"}
+        )
+        assert result == S3Request(
+            operation=S3Operation.COPY_OBJECT,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
     def test_get_object(self) -> None:
         result = classify_request("GET", "/my-bucket/photos/cat.jpg")
         assert result == S3Request(
@@ -89,6 +99,27 @@ class TestClassifyRequest:
             operation=S3Operation.CREATE_BUCKET,
             bucket="my-bucket",
             key=None,
+        )
+
+    def test_list_objects_v2(self) -> None:
+        result = classify_request("GET", "/my-bucket", b"list-type=2")
+        assert result == S3Request(
+            operation=S3Operation.LIST_OBJECTS_V2,
+            bucket="my-bucket",
+        )
+
+    def test_list_objects_v1(self) -> None:
+        result = classify_request("GET", "/my-bucket")
+        assert result == S3Request(
+            operation=S3Operation.LIST_OBJECTS,
+            bucket="my-bucket",
+        )
+
+    def test_delete_objects(self) -> None:
+        result = classify_request("POST", "/my-bucket", b"delete=")
+        assert result == S3Request(
+            operation=S3Operation.DELETE_OBJECTS,
+            bucket="my-bucket",
         )
 
     def test_create_bucket_trailing_slash(self) -> None:
