@@ -84,13 +84,22 @@ def classify_request(  # noqa: PLR0912
                 raise ValueError(msg)
 
         elif base_operation == S3Operation.PUT_OBJECT:
-            if "partNumber" in query and "uploadId" in query:
+            if "tagging" in query:
+                operation = S3Operation.PUT_OBJECT_TAGGING
+            elif "partNumber" in query and "uploadId" in query:
                 operation = S3Operation.UPLOAD_PART
             elif headers and "x-amz-copy-source" in headers:
                 operation = S3Operation.COPY_OBJECT
 
-        elif base_operation == S3Operation.DELETE_OBJECT and "uploadId" in query:
-            operation = S3Operation.ABORT_MULTIPART_UPLOAD
+        elif base_operation == S3Operation.GET_OBJECT:
+            if "tagging" in query:
+                operation = S3Operation.GET_OBJECT_TAGGING
+
+        elif base_operation == S3Operation.DELETE_OBJECT:
+            if "tagging" in query:
+                operation = S3Operation.DELETE_OBJECT_TAGGING
+            elif "uploadId" in query:
+                operation = S3Operation.ABORT_MULTIPART_UPLOAD
 
         elif base_operation == S3Operation.DELETE_OBJECTS and "delete" not in query:
             msg = f"Cannot classify POST request without 'delete' query param: {path}"

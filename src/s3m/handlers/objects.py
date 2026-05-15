@@ -14,6 +14,7 @@ from s3m.common.xml import (
     complete_multipart_upload_xml,
     copy_object_result_xml,
     create_multipart_upload_xml,
+    get_object_tagging_xml,
 )
 from s3m.routing.operations import S3Operation
 from s3m.strategies.read import ReadFallbackStrategy
@@ -294,4 +295,62 @@ async def handle_copy_object(
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("CopyObject failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_put_object_tagging(
+    bucket: str,
+    key: str,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+    body: bytes,
+) -> ASGIResponse:
+    """Handle PUT /{bucket}/{key}?tagging — PutObjectTagging."""
+    try:
+        root = ET.fromstring(body.decode("utf-8"))
+
+        tags = []
+        for tag_elem in root.findall(".//Tag"):
+            k = tag_elem.find("Key")
+            v = tag_elem.find("Value")
+            if k is not None and k.text and v is not None and v.text is not None:
+                tags.append({"Key": k.text, "Value": v.text})
+
+        params = {"Bucket": bucket, "Key": key, "Tagging": {"TagSet": tags}}
+
+        await write_strategy.execute(S3Operation.PUT_OBJECT_TAGGING, pool, params)
+        return ASGIResponse(content=b"", status_code=200)
+    except Exception as exc:
+        logger.exception("PutObjectTagging failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_get_object_tagging(
+    bucket: str,
+    key: str,
+    pool: BackendPool,
+    read_strategy: ReadFallbackStrategy,
+) -> ASGIResponse:
+    """Handle GET /{bucket}/{key}?tagging — GetObjectTagging."""
+    try:
+        response = await read_strategy.execute(S3Operation.GET_OBJECT_TAGGING, pool, {"Bucket": bucket, "Key": key})
+        xml = get_object_tagging_xml(response)
+        return ASGIResponse(content=xml.encode(), status_code=200)
+    except Exception as exc:
+        logger.exception("GetObjectTagging failed", bucket=bucket, key=key, error=str(exc))
+        return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()
+
+
+async def handle_delete_object_tagging(
+    bucket: str,
+    key: str,
+    pool: BackendPool,
+    write_strategy: WritePrimaryReplicationStrategy,
+) -> ASGIResponse:
+    """Handle DELETE /{bucket}/{key}?tagging — DeleteObjectTagging."""
+    try:
+        await write_strategy.execute(S3Operation.DELETE_OBJECT_TAGGING, pool, {"Bucket": bucket, "Key": key})
+        return ASGIResponse(content=b"", status_code=204)
+    except Exception as exc:
+        logger.exception("DeleteObjectTagging failed", bucket=bucket, key=key, error=str(exc))
         return S3ErrorResponse.from_client_error(exc, resource=f"/{bucket}/{key}").to_response()

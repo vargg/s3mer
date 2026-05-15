@@ -136,6 +136,27 @@ async def _replicate_operation(
                 {"Bucket": message.bucket, "Key": message.key},
             )
 
+        case S3Operation.PUT_OBJECT_TAGGING:
+            # Fetch current tagging from source and apply to target
+            tag_response = await source.execute(
+                S3Operation.GET_OBJECT_TAGGING,
+                {"Bucket": message.bucket, "Key": message.key},
+            )
+            await target.execute(
+                S3Operation.PUT_OBJECT_TAGGING,
+                {
+                    "Bucket": message.bucket,
+                    "Key": message.key,
+                    "Tagging": {"TagSet": tag_response.get("TagSet", [])},
+                },
+            )
+
+        case S3Operation.DELETE_OBJECT_TAGGING:
+            await target.execute(
+                S3Operation.DELETE_OBJECT_TAGGING,
+                {"Bucket": message.bucket, "Key": message.key},
+            )
+
         case _:
             logger.warning(
                 "Unsupported replication operation",

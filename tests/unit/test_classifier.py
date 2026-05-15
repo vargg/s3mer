@@ -91,6 +91,32 @@ class TestClassifyRequest:
             key="photos/cat.jpg",
         )
 
+    # --- Tagging operations ---
+
+    def test_put_object_tagging(self) -> None:
+        result = classify_request("PUT", "/my-bucket/photos/cat.jpg", b"tagging=")
+        assert result == S3Request(
+            operation=S3Operation.PUT_OBJECT_TAGGING,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_get_object_tagging(self) -> None:
+        result = classify_request("GET", "/my-bucket/photos/cat.jpg", b"tagging=")
+        assert result == S3Request(
+            operation=S3Operation.GET_OBJECT_TAGGING,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
+    def test_delete_object_tagging(self) -> None:
+        result = classify_request("DELETE", "/my-bucket/photos/cat.jpg", b"tagging=")
+        assert result == S3Request(
+            operation=S3Operation.DELETE_OBJECT_TAGGING,
+            bucket="my-bucket",
+            key="photos/cat.jpg",
+        )
+
     # --- Bucket operations ---
 
     def test_create_bucket(self) -> None:

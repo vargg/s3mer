@@ -29,9 +29,12 @@ from s3m.handlers.objects import (
     handle_copy_object,
     handle_create_multipart_upload,
     handle_delete_object,
+    handle_delete_object_tagging,
     handle_get_object,
+    handle_get_object_tagging,
     handle_head_object,
     handle_put_object,
+    handle_put_object_tagging,
     handle_upload_part,
 )
 from s3m.kafka.broker import create_broker
@@ -235,6 +238,9 @@ class S3ProxyApp:
                 | S3Operation.GET_OBJECT
                 | S3Operation.DELETE_OBJECT
                 | S3Operation.HEAD_OBJECT
+                | S3Operation.PUT_OBJECT_TAGGING
+                | S3Operation.GET_OBJECT_TAGGING
+                | S3Operation.DELETE_OBJECT_TAGGING
                 | S3Operation.CREATE_MULTIPART_UPLOAD
                 | S3Operation.UPLOAD_PART
                 | S3Operation.COMPLETE_MULTIPART_UPLOAD
@@ -298,6 +304,13 @@ class S3ProxyApp:
                 return await handle_get_object(bucket, key, pool, read_strategy)
             case S3Operation.DELETE_OBJECT:
                 return await handle_delete_object(bucket, key, pool, write_strategy)
+            case S3Operation.PUT_OBJECT_TAGGING:
+                body = await _read_body(receive)
+                return await handle_put_object_tagging(bucket, key, pool, write_strategy, body)
+            case S3Operation.GET_OBJECT_TAGGING:
+                return await handle_get_object_tagging(bucket, key, pool, read_strategy)
+            case S3Operation.DELETE_OBJECT_TAGGING:
+                return await handle_delete_object_tagging(bucket, key, pool, write_strategy)
             case S3Operation.HEAD_OBJECT:
                 return await handle_head_object(bucket, key, pool, read_strategy)
             case S3Operation.CREATE_MULTIPART_UPLOAD:

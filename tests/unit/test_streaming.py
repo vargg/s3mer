@@ -12,22 +12,13 @@ class MockReceive:
         if self.index < len(self.chunks):
             chunk = self.chunks[self.index]
             self.index += 1
-            return {
-                "type": "http.request",
-                "body": chunk,
-                "more_body": self.index < len(self.chunks)
-            }
+            return {"type": "http.request", "body": chunk, "more_body": self.index < len(self.chunks)}
         return {"type": "http.disconnect"}
+
 
 @pytest.mark.asyncio
 async def test_aws_chunked_decoder() -> None:
-    payload = (
-        b"5;chunk-signature=12345\r\n"
-        b"hello\r\n"
-        b"6;chunk-signature=67890\r\n"
-        b" world\r\n"
-        b"0;chunk-signature=abcd\r\n"
-    )
+    payload = b"5;chunk-signature=12345\r\nhello\r\n6;chunk-signature=67890\r\n world\r\n0;chunk-signature=abcd\r\n"
 
     # Split payload into artificial ASGI chunks
     asgi_chunks = [payload[:10], payload[10:20], payload[20:]]
@@ -38,15 +29,10 @@ async def test_aws_chunked_decoder() -> None:
     result = await decoder.read()
     assert result == b"hello world"
 
+
 @pytest.mark.asyncio
 async def test_aws_chunked_decoder_read_chunks() -> None:
-    payload = (
-        b"5;chunk-signature=12345\r\n"
-        b"hello\r\n"
-        b"6;chunk-signature=67890\r\n"
-        b" world\r\n"
-        b"0;chunk-signature=abcd\r\n"
-    )
+    payload = b"5;chunk-signature=12345\r\nhello\r\n6;chunk-signature=67890\r\n world\r\n0;chunk-signature=abcd\r\n"
 
     receive = MockReceive([payload])
     reader = ASGIStreamReader(receive)

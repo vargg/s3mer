@@ -59,6 +59,25 @@ def delete_result_xml(deleted_keys: list[str], errors: list[dict] | None = None)
     return "\n".join(parts)
 
 
+def get_object_tagging_xml(response: dict) -> str:
+    """Build GetObjectTagging XML response."""
+    parts = ['<?xml version="1.0" encoding="UTF-8"?>', "<Tagging>", "  <TagSet>"]
+
+    tag_set = response.get("TagSet", [])
+    for tag in tag_set:
+        parts.extend(
+            [
+                "    <Tag>",
+                f"      <Key>{tag.get('Key', '')}</Key>",
+                f"      <Value>{tag.get('Value', '')}</Value>",
+                "    </Tag>",
+            ]
+        )
+
+    parts.extend(["  </TagSet>", "</Tagging>"])
+    return "\n".join(parts)
+
+
 def list_objects_xml(bucket: str, response: dict) -> str:
     """Build ListObjects (V1) XML response."""
     parts = [

@@ -126,7 +126,7 @@ def _test_worker_replication():  # noqa: PLR0915
                     {"ETag": part1["ETag"], "PartNumber": 1},
                     {"ETag": part2["ETag"], "PartNumber": 2},
                 ]
-            }
+            },
         )
 
         # Verify multipart object exists and is complete

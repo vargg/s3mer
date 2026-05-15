@@ -106,9 +106,7 @@ class TestWritePrimaryReplicationStrategy:
         pool = _make_mock_pool([primary])
         pool.get_secondaries.return_value = []
 
-        result = await strategy.execute(
-            S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k", "Body": b"data"}
-        )
+        result = await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k", "Body": b"data"})
 
         assert result["ETag"] == '"abc123"'
         primary.execute.assert_called_once()
@@ -125,9 +123,7 @@ class TestWritePrimaryReplicationStrategy:
 
         pool = _make_mock_pool([primary, secondary])
 
-        await strategy.execute(
-            S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k", "Body": b"data"}
-        )
+        await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k", "Body": b"data"})
 
         publisher.publish.assert_called_once()
         msg = publisher.publish.call_args[0][0]
@@ -171,9 +167,7 @@ class TestWritePrimaryReplicationStrategy:
 
         pool = _make_mock_pool([primary, secondary])
 
-        await strategy.execute(
-            S3Operation.CREATE_MULTIPART_UPLOAD, pool, {"Bucket": "b", "Key": "k"}, replicate=False
-        )
+        await strategy.execute(S3Operation.CREATE_MULTIPART_UPLOAD, pool, {"Bucket": "b", "Key": "k"}, replicate=False)
 
         publisher.publish.assert_not_called()
 
@@ -188,8 +182,6 @@ class TestWritePrimaryReplicationStrategy:
         pool = _make_mock_pool([primary])
 
         with pytest.raises(Exception, match="primary down"):
-            await strategy.execute(
-                S3Operation.CREATE_BUCKET, pool, {"Bucket": "b"}
-            )
+            await strategy.execute(S3Operation.CREATE_BUCKET, pool, {"Bucket": "b"})
 
         publisher.publish.assert_not_called()

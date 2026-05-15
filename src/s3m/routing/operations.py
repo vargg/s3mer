@@ -34,6 +34,11 @@ class S3Operation(StrEnum):
     POST_OBJECT = "post_object"
     COPY_OBJECT = "copy_object"
 
+    # Tagging operations
+    PUT_OBJECT_TAGGING = "put_object_tagging"
+    GET_OBJECT_TAGGING = "get_object_tagging"
+    DELETE_OBJECT_TAGGING = "delete_object_tagging"
+
     # Multipart operations
     CREATE_MULTIPART_UPLOAD = "create_multipart_upload"
     UPLOAD_PART = "upload_part"
@@ -85,6 +90,9 @@ _OPERATION_TYPES: dict[S3Operation, OperationType] = {
     S3Operation.HEAD_OBJECT: OperationType.READ,
     S3Operation.POST_OBJECT: OperationType.WRITE,
     S3Operation.COPY_OBJECT: OperationType.WRITE,
+    S3Operation.PUT_OBJECT_TAGGING: OperationType.WRITE,
+    S3Operation.GET_OBJECT_TAGGING: OperationType.READ,
+    S3Operation.DELETE_OBJECT_TAGGING: OperationType.WRITE,
     S3Operation.CREATE_MULTIPART_UPLOAD: OperationType.WRITE,
     S3Operation.UPLOAD_PART: OperationType.WRITE,
     S3Operation.COMPLETE_MULTIPART_UPLOAD: OperationType.WRITE,
@@ -100,6 +108,9 @@ _OBJECT_OPERATIONS: frozenset[S3Operation] = frozenset(
         S3Operation.HEAD_OBJECT,
         S3Operation.POST_OBJECT,
         S3Operation.COPY_OBJECT,
+        S3Operation.PUT_OBJECT_TAGGING,
+        S3Operation.GET_OBJECT_TAGGING,
+        S3Operation.DELETE_OBJECT_TAGGING,
         S3Operation.CREATE_MULTIPART_UPLOAD,
         S3Operation.UPLOAD_PART,
         S3Operation.COMPLETE_MULTIPART_UPLOAD,
