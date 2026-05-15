@@ -102,5 +102,3 @@ class WritePrimaryReplicationStrategy:
             )
 
         return response
-
-        return response

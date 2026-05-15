@@ -1,6 +1,6 @@
 """Async streaming utilities for proxying S3 object bodies."""
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any
 
 # Default chunk size: 64 KB — good balance between throughput and memory
@@ -41,7 +41,7 @@ async def collect_request_body(
     return b"".join(chunks)
 
 
-class ASGIStreamReader:
+class ASGIStreamReader(AsyncIterator[bytes]):
     """An async stream reader that reads from the ASGI receive channel."""
 
     def __init__(self, receive: Any) -> None:
@@ -76,8 +76,19 @@ class ASGIStreamReader:
         del self._buffer[:n]
         return chunk
 
+    def __aiter__(self):
+        """Make it iterable for async iteration."""
+        return self
 
-class AWSChunkedDecoder:
+    async def __anext__(self) -> bytes:
+        """Async iterator protocol."""
+        chunk = await self.read(65536)
+        if not chunk:
+            raise StopAsyncIteration
+        return chunk
+
+
+class AWSChunkedDecoder(AsyncIterator[bytes]):
     """
     Decodes STREAMING-AWS4-HMAC-SHA256-PAYLOAD (aws-chunked) streams on the fly.
     """
@@ -163,3 +174,14 @@ class AWSChunkedDecoder:
                 self._state = "READ_HEADER"
 
         return bytes(result)
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        """Make it iterable for async iteration."""
+        return self
+
+    async def __anext__(self) -> bytes:
+        """Async iterator protocol."""
+        chunk = await self.read(65536)
+        if not chunk:
+            raise StopAsyncIteration
+        return chunk

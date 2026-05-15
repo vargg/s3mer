@@ -20,6 +20,7 @@ async def handle_create_bucket(
     bucket: str,
     pool: BackendPool,
     write_strategy: WritePrimaryReplicationStrategy,
+    body: bytes,
 ) -> ASGIResponse:
     """Handle PUT /{bucket} — CreateBucket."""
     try:

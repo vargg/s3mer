@@ -177,10 +177,14 @@ class S3ProxyApp:
                     )
             except Exception as exc:
                 logger.exception("Unhandled error in S3 proxy", error=str(exc))
-                response = S3ErrorResponse(
-                    error_code=S3Errors.INTERNAL_ERROR,
-                    resource=path,
-                ).to_response()
+                response = S3ErrorResponse.from_client_error(exc, resource=path).to_response()
+
+            # If it was a PutObject/UploadPart and it failed, we might not have consumed the body.
+            # Add Connection: close to ensure the client doesn't reuse this corrupted connection.
+            if operation_name in ("put_object", "upload_part") and getattr(response, "status_code", 200) >= 400:
+                # response.extra_headers is used in our ASGIResponse/ASGIStreamingResponse classes
+                if hasattr(response, "extra_headers"):
+                    response.extra_headers["connection"] = "close"
 
             status_code = getattr(response, "status_code", 500)
             await response(scope, receive, send)
@@ -216,7 +220,8 @@ class S3ProxyApp:
         match operation:
             # Bucket operations
             case S3Operation.CREATE_BUCKET:
-                return await handle_create_bucket(bucket, pool, write_strategy)
+                body = await _read_body(receive)
+                return await handle_create_bucket(bucket, pool, write_strategy, body)
             case S3Operation.DELETE_BUCKET:
                 return await handle_delete_bucket(bucket, pool, write_strategy)
             case S3Operation.HEAD_BUCKET:

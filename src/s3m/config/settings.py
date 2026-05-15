@@ -1,6 +1,5 @@
 """Application settings loaded from YAML / environment variables."""
 
-import os
 from pathlib import Path
 from typing import Literal, Self
 
@@ -78,7 +77,7 @@ def load_settings(config_path: str | Path | None = None) -> Settings:
     1. YAML file (if provided or S3M_CONFIG_PATH env var is set)
     2. Environment variables (override YAML values)
     """
-    config_path = config_path or os.getenv("S3M_CONFIG_PATH")
+    config_path = config_path or Path(__file__).parent.parent.parent.parent.joinpath("config/settings.yaml")
 
     if config_path:
         path = Path(config_path)

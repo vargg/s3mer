@@ -38,7 +38,8 @@ class S3BackendClient:
             aws_access_key_id=self.config.access_key,
             aws_secret_access_key=self.config.secret_key.get_secret_value(),
             config=AioConfig(
-                s3={"addressing_style": self.config.addressing_style},
+                s3={"addressing_style": self.config.addressing_style, "payload_signing_enabled": False},
+                request_checksum_calculation="when_required",
                 connect_timeout=10,
                 read_timeout=30,
                 retries={"max_attempts": 2},

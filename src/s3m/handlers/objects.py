@@ -217,22 +217,37 @@ async def handle_complete_multipart_upload(
         parts = []
         if body:
             root = ET.fromstring(body.decode("utf-8"))
-            # xmlns can make tags like {http://s3.amazonaws.com/doc/2006-03-01/}Part
-            for part in root.findall(".//Part") or root.findall(".//*[@name='Part']") or root:
-                # simple un-namespaced parsing for fallback
-                if part.tag.endswith("Part"):
-                    p_num = part.find(".//PartNumber")
-                    p_num = p_num if p_num is not None else part.find("*[local-name()='PartNumber']")
-                    etag = part.find(".//ETag")
-                    etag = etag if etag is not None else part.find("*[local-name()='ETag']")
+            # S3 CompleteMultipartUpload XML structure:
+            # <CompleteMultipartUpload xmlns="...">
+            #   <Part>
+            #     <PartNumber>1</PartNumber>
+            #     <ETag>...</ETag>
+            #   </Part>
+            # </CompleteMultipartUpload>
 
-                    # Alternatively, strip namespaces
-                    part_str = ET.tostring(part, encoding="unicode")
-                    part_num_m = re.search(r"<PartNumber>(\d+)</PartNumber>", part_str)
-                    etag_m = re.search(r"<ETag>(.+?)</ETag>", part_str)
+            # Iterate through all children of the root element
+            for part_node in root:
+                # Handle potential namespace in tag: {http://...}Part
+                if not part_node.tag.endswith("Part"):
+                    continue
 
-                    if part_num_m and etag_m:
-                        parts.append({"PartNumber": int(part_num_m.group(1)), "ETag": etag_m.group(1)})
+                part_number = None
+                etag = None
+
+                # Look for PartNumber and ETag children regardless of namespace
+                for child in part_node:
+                    tag = child.tag
+                    if tag.endswith("PartNumber") and child.text:
+                        try:
+                            part_number = int(child.text)
+                        except ValueError:
+                            logger.warning("Invalid PartNumber in XML", text=child.text)
+                    elif tag.endswith("ETag") and child.text:
+                        # ETag is often quoted in S3 XML, but we should pass it as provided
+                        etag = child.text.strip()
+
+                if part_number is not None and etag is not None:
+                    parts.append({"PartNumber": part_number, "ETag": etag})
 
         params = {"Bucket": bucket, "Key": key, "UploadId": upload_id, "MultipartUpload": {"Parts": parts}}
 

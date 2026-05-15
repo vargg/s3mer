@@ -37,6 +37,11 @@ class S3Errors:
         503,
         "Reduce your request rate. Service is temporarily unavailable.",
     )
+    ENTITY_TOO_SMALL = S3ErrorCode(
+        "EntityTooSmall",
+        400,
+        "Your proposed upload is smaller than the minimum allowed object size.",
+    )
 
 
 @dataclass
@@ -57,6 +62,7 @@ class S3ErrorResponse:
         "BucketNotEmpty": S3Errors.BUCKET_NOT_EMPTY,
         "AccessDenied": S3Errors.ACCESS_DENIED,
         "InvalidBucketName": S3Errors.INVALID_BUCKET_NAME,
+        "EntityTooSmall": S3Errors.ENTITY_TOO_SMALL,
     }
 
     def to_xml(self) -> str:

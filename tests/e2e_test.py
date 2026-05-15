@@ -114,7 +114,8 @@ def _test_worker_replication():  # noqa: PLR0915
         mp = proxy_client.create_multipart_upload(Bucket=bucket, Key=mp_key)
         upload_id = mp["UploadId"]
 
-        part1 = proxy_client.upload_part(Bucket=bucket, Key=mp_key, PartNumber=1, UploadId=upload_id, Body=b"Hello ")
+        part1_body = b"A" * (5 * 1024 * 1024)  # 5 MiB
+        part1 = proxy_client.upload_part(Bucket=bucket, Key=mp_key, PartNumber=1, UploadId=upload_id, Body=part1_body)
         part2 = proxy_client.upload_part(Bucket=bucket, Key=mp_key, PartNumber=2, UploadId=upload_id, Body=b"World!")
 
         proxy_client.complete_multipart_upload(
@@ -131,7 +132,8 @@ def _test_worker_replication():  # noqa: PLR0915
 
         # Verify multipart object exists and is complete
         resp = proxy_client.get_object(Bucket=bucket, Key=mp_key)
-        assert resp["Body"].read() == b"Hello World!"
+        expected_body = (b"A" * (5 * 1024 * 1024)) + b"World!"
+        assert resp["Body"].read() == expected_body
         print("  Multipart Upload OK")
 
         # Wait for worker to replicate the fully assembled multipart object
