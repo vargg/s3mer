@@ -36,6 +36,13 @@ packages = ["src/s3m"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = [
+    "unit: Unit tests",
+    "e2e: End-to-end tests requiring a running proxy and backends",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:aiobotocore.*",
+]
 
 [tool.ruff]
 line-length = 120

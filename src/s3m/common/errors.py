@@ -63,6 +63,9 @@ class S3ErrorResponse:
         "AccessDenied": S3Errors.ACCESS_DENIED,
         "InvalidBucketName": S3Errors.INVALID_BUCKET_NAME,
         "EntityTooSmall": S3Errors.ENTITY_TOO_SMALL,
+        # Numeric codes often seen in HeadBucket/HeadObject
+        "404": S3Errors.NO_SUCH_BUCKET,
+        "403": S3Errors.ACCESS_DENIED,
     }
 
     def to_xml(self) -> str:

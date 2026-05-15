@@ -3,9 +3,13 @@
 from pathlib import Path
 from typing import Literal, Self
 
-import yaml
 from pydantic import BaseModel, Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 
 class BackendConfig(BaseModel):
@@ -41,11 +45,30 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="S3M_",
         env_nested_delimiter="__",
+        # Allow loading from a yaml file if it exists
+        yaml_file=Path(__file__).parent.parent.parent.parent.joinpath("config/settings.yaml"),
+        extra="ignore",
     )
 
     backends: list[BackendConfig] = Field(default_factory=list)
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
     log_level: str = Field(default="INFO")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Prioritize environment variables over YAML file."""
+        return (
+            init_settings,
+            env_settings,
+            YamlConfigSettingsSource(settings_cls),
+        )
 
     @model_validator(mode="after")
     def validate_backends(self) -> Self:
@@ -69,21 +92,6 @@ class Settings(BaseSettings):
         return self
 
 
-def load_settings(config_path: str | Path | None = None) -> Settings:
-    """
-    Load settings from a YAML file, with environment variable overrides.
-
-    Resolution order:
-    1. YAML file (if provided or S3M_CONFIG_PATH env var is set)
-    2. Environment variables (override YAML values)
-    """
-    config_path = config_path or Path(__file__).parent.parent.parent.parent.joinpath("config/settings.yaml")
-
-    if config_path:
-        path = Path(config_path)
-        if path.exists():
-            with path.open() as f:
-                data = yaml.safe_load(f) or {}
-            return Settings(**data)
-
+def load_settings() -> Settings:
+    """Load settings using Pydantic-settings' built-in resolution logic."""
     return Settings()
