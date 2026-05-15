@@ -1,7 +1,7 @@
 """Async streaming utilities for proxying S3 object bodies."""
 
 from collections.abc import AsyncGenerator, AsyncIterator
-from typing import Any
+from typing import Any, Self
 
 # Default chunk size: 64 KB — good balance between throughput and memory
 DEFAULT_CHUNK_SIZE = 65_536
@@ -76,7 +76,7 @@ class ASGIStreamReader(AsyncIterator[bytes]):
         del self._buffer[:n]
         return chunk
 
-    def __aiter__(self):
+    def __aiter__(self) -> Self:
         """Make it iterable for async iteration."""
         return self
 
@@ -175,7 +175,7 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
 
         return bytes(result)
 
-    def __aiter__(self) -> AsyncIterator[bytes]:
+    def __aiter__(self) -> Self:
         """Make it iterable for async iteration."""
         return self
 

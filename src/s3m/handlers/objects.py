@@ -1,6 +1,5 @@
 """HTTP handlers for S3 object operations."""
 
-import re
 from typing import Any
 from urllib.parse import parse_qsl
 from xml.etree import ElementTree as ET
@@ -325,11 +324,37 @@ async def handle_put_object_tagging(
         root = ET.fromstring(body.decode("utf-8"))
 
         tags = []
-        for tag_elem in root.findall(".//Tag"):
-            k = tag_elem.find("Key")
-            v = tag_elem.find("Value")
-            if k is not None and k.text and v is not None and v.text is not None:
-                tags.append({"Key": k.text, "Value": v.text})
+        # S3 PutObjectTagging XML structure:
+        # <Tagging xmlns="...">
+        #   <TagSet>
+        #     <Tag>
+        #       <Key>...</Key>
+        #       <Value>...</Value>
+        #     </Tag>
+        #   </TagSet>
+        # </Tagging>
+
+        # Iterate through children of <Tagging> to find <TagSet>
+        for tagging_child in root:
+            if not tagging_child.tag.endswith("TagSet"):
+                continue
+
+            # Iterate through children of <TagSet> to find <Tag>
+            for tag_node in tagging_child:
+                if not tag_node.tag.endswith("Tag"):
+                    continue
+
+                k = None
+                v = None
+                # Look for Key and Value regardless of namespace
+                for tag_child in tag_node:
+                    if tag_child.tag.endswith("Key"):
+                        k = tag_child.text
+                    elif tag_child.tag.endswith("Value"):
+                        v = tag_child.text
+
+                if k is not None and v is not None:
+                    tags.append({"Key": k, "Value": v})
 
         params = {"Bucket": bucket, "Key": key, "Tagging": {"TagSet": tags}}
 

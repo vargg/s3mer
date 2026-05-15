@@ -1,6 +1,7 @@
 """Pure ASGI application that proxies S3 requests to configured backends."""
 
 import time
+from http import HTTPStatus
 from typing import Any
 
 from s3m.backends.pool import BackendPool
@@ -181,10 +182,13 @@ class S3ProxyApp:
 
             # If it was a PutObject/UploadPart and it failed, we might not have consumed the body.
             # Add Connection: close to ensure the client doesn't reuse this corrupted connection.
-            if operation_name in ("put_object", "upload_part") and getattr(response, "status_code", 200) >= 400:
+            if (
+                operation_name in ("put_object", "upload_part")
+                and getattr(response, "status_code", 200) >= HTTPStatus.BAD_REQUEST
+                and hasattr(response, "extra_headers")
+            ):
                 # response.extra_headers is used in our ASGIResponse/ASGIStreamingResponse classes
-                if hasattr(response, "extra_headers"):
-                    response.extra_headers["connection"] = "close"
+                response.extra_headers["connection"] = "close"
 
             status_code = getattr(response, "status_code", 500)
             await response(scope, receive, send)
@@ -220,8 +224,7 @@ class S3ProxyApp:
         match operation:
             # Bucket operations
             case S3Operation.CREATE_BUCKET:
-                body = await _read_body(receive)
-                return await handle_create_bucket(bucket, pool, write_strategy, body)
+                return await handle_create_bucket(bucket, pool, write_strategy)
             case S3Operation.DELETE_BUCKET:
                 return await handle_delete_bucket(bucket, pool, write_strategy)
             case S3Operation.HEAD_BUCKET:

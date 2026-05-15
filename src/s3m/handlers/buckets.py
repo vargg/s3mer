@@ -20,7 +20,6 @@ async def handle_create_bucket(
     bucket: str,
     pool: BackendPool,
     write_strategy: WritePrimaryReplicationStrategy,
-    body: bytes,
 ) -> ASGIResponse:
     """Handle PUT /{bucket} — CreateBucket."""
     try:
@@ -162,10 +161,24 @@ async def handle_delete_objects(
         root = ET.fromstring(body.decode("utf-8"))
 
         objects_to_delete = []
-        for obj_elem in root.findall(".//Object"):
-            key_elem = obj_elem.find("Key")
-            if key_elem is not None and key_elem.text:
-                objects_to_delete.append({"Key": key_elem.text})
+        # S3 DeleteObjects XML structure:
+        # <Delete xmlns="...">
+        #   <Object>
+        #     <Key>...</Key>
+        #   </Object>
+        # </Delete>
+
+        # Iterate through all children of the root element (which should be <Delete>)
+        for node in root:
+            # Handle potential namespace in tag: {http://...}Object
+            if not node.tag.endswith("Object"):
+                continue
+
+            # Look for Key child regardless of namespace
+            for child in node:
+                if child.tag.endswith("Key") and child.text:
+                    objects_to_delete.append({"Key": child.text})
+                    break
 
         if not objects_to_delete:
             return ASGIResponse(

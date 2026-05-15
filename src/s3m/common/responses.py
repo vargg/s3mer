@@ -25,9 +25,11 @@ class ASGIResponse:
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
         # Check if Content-Length is provided explicitly in headers
         extra_lower = {k.lower(): v for k, v in self.extra_headers.items()}
-        headers: list[tuple[bytes, bytes]] = [
-            (b"content-type", self.media_type.encode()),
-        ]
+        headers: list[tuple[bytes, bytes]] = []
+
+        if "content-type" not in extra_lower:
+            headers.append((b"content-type", self.media_type.encode()))
+
         if "content-length" not in extra_lower:
             headers.append((b"content-length", str(len(self.body)).encode()))
 
@@ -65,9 +67,12 @@ class ASGIStreamingResponse:
         self.extra_headers = headers or {}
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
-        resp_headers: list[tuple[bytes, bytes]] = [
-            (b"content-type", self.media_type.encode()),
-        ]
+        extra_lower = {k.lower(): v for k, v in self.extra_headers.items()}
+        resp_headers: list[tuple[bytes, bytes]] = []
+
+        if "content-type" not in extra_lower:
+            resp_headers.append((b"content-type", self.media_type.encode()))
+
         for k, v in self.extra_headers.items():
             resp_headers.append((k.lower().encode(), v.encode()))
 
