@@ -7,7 +7,8 @@ S3MER is a high-performance, asynchronous S3 proxy designed to provide consisten
 ### 1. S3 Proxy (`src/s3mer/app.py`)
 - **Async/ASGI**: Built as a pure ASGI application for maximum concurrency and low-overhead HTTP handling.
 - **Path-style Routing**: Currently supports path-style S3 URLs (`/bucket/key`).
-- **Request Classification**: Advanced routing (`routing/classifier.py`) that differentiates between Bucket, Object, Multipart, and Metadata operations by inspecting HTTP methods, URL patterns, and query parameters (e.g., `?tagging`, `?uploads`).
+- **Declarative Dispatching**: Uses a centralized `HandlerRegistry` (`routing/registry.py`) to map operations to handlers via decorators. This eliminates manual dispatch boilerplate.
+- **Unified Handler Context**: All handlers receive a standard `HandlerContext` containing dependencies (pool, strategies, metrics) and request metadata.
 - **Memory-Efficient Streaming**: Implements on-the-fly streaming for `PUT` and `GET` operations. Large objects are never buffered in memory.
 - **AWS Chunked Decoding**: Custom `AWSChunkedDecoder` handles `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` (SigV4 chunked) unwrapping without memory overhead.
 
@@ -43,9 +44,26 @@ S3MER uses **Pydantic-settings** for robust configuration management.
 
 - **PEP-8 Compliance**: All code must be PEP-8 compatible. Use `ruff format` to ensure consistency.
 - **Strict Linting**: Disabling linter rules (e.g., `# noqa`) is allowed only for special cases and must be justified.
-- **Dependency Injection**: Use dependency injection for system-level services (like the Metrics Tracker) to ensure testability and decoupled monitoring.
+- **Dependency Injection**: Use `HandlerContext` to access system-level services (like the Metrics Tracker) in S3 handlers.
 - **Explicit Imports**: Use top-level imports. Avoid inline imports unless strictly necessary for avoiding circular dependencies.
 - **Type Safety**: All new code must pass `ty check` with zero errors.
+
+### How to add a new S3 Operation
+
+1.  **Define Operation**: Add a new variant to the `S3Operation` enum in `routing/operations.py`.
+2.  **Classify**: Add a routing entry to `RequestClassifier._ROUTING_TABLE` (and refinement logic if needed) in `routing/classifier.py`.
+3.  **Implement Handler**: Create a function in `handlers/` and decorate it with `@s3_handler`:
+    ```python
+    @s3_handler(
+        S3Operation.YOUR_OPERATION,
+        operation_type=OperationType.READ, # or WRITE
+        body_style=BodyStyle.EMPTY,        # or STREAM, BUFFERED
+    )
+    async def handle_your_op(ctx: HandlerContext) -> ASGIResponse:
+        # Use ctx.pool, ctx.read_strategy, etc.
+        ...
+    ```
+4.  **Register**: Ensure the handler module is imported in `app.py`.
 
 ## Supported S3 API Operations
 

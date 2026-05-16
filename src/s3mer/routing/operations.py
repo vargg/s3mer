@@ -54,66 +54,27 @@ class S3Operation(StrEnum):
         return self.value
 
     @property
-    def operation_type(self) -> OperationType:
+    def operation_type(self) -> str:
         """Whether this operation reads or writes."""
-        return _OPERATION_TYPES[self]
+        from s3mer.routing.registry import OperationType, registry  # noqa: PLC0415
+
+        meta = registry.get(self)
+        if meta and meta.operation_type == OperationType.WRITE:
+            return "write"
+        return "read"
 
     @property
     def is_read(self) -> bool:
-        return self.operation_type == OperationType.READ
+        return self.operation_type == "read"
 
     @property
     def is_write(self) -> bool:
-        return self.operation_type == OperationType.WRITE
+        return self.operation_type == "write"
 
     @property
     def is_object_operation(self) -> bool:
         """True if this operation targets an object (vs. a bucket)."""
-        return self in _OBJECT_OPERATIONS
+        from s3mer.routing.registry import registry  # noqa: PLC0415
 
-    @property
-    def is_bucket_operation(self) -> bool:
-        """True if this operation targets a bucket."""
-        return self not in _OBJECT_OPERATIONS
-
-
-_OPERATION_TYPES: dict[S3Operation, OperationType] = {
-    S3Operation.CREATE_BUCKET: OperationType.WRITE,
-    S3Operation.DELETE_BUCKET: OperationType.WRITE,
-    S3Operation.HEAD_BUCKET: OperationType.READ,
-    S3Operation.LIST_BUCKETS: OperationType.READ,
-    S3Operation.DELETE_OBJECTS: OperationType.WRITE,
-    S3Operation.LIST_OBJECTS: OperationType.READ,
-    S3Operation.PUT_OBJECT: OperationType.WRITE,
-    S3Operation.GET_OBJECT: OperationType.READ,
-    S3Operation.DELETE_OBJECT: OperationType.WRITE,
-    S3Operation.HEAD_OBJECT: OperationType.READ,
-    S3Operation.POST_OBJECT: OperationType.WRITE,
-    S3Operation.COPY_OBJECT: OperationType.WRITE,
-    S3Operation.PUT_OBJECT_TAGGING: OperationType.WRITE,
-    S3Operation.GET_OBJECT_TAGGING: OperationType.READ,
-    S3Operation.DELETE_OBJECT_TAGGING: OperationType.WRITE,
-    S3Operation.CREATE_MULTIPART_UPLOAD: OperationType.WRITE,
-    S3Operation.UPLOAD_PART: OperationType.WRITE,
-    S3Operation.COMPLETE_MULTIPART_UPLOAD: OperationType.WRITE,
-    S3Operation.ABORT_MULTIPART_UPLOAD: OperationType.WRITE,
-    S3Operation.LIST_OBJECTS_V2: OperationType.READ,
-}
-
-_OBJECT_OPERATIONS: frozenset[S3Operation] = frozenset(
-    {
-        S3Operation.PUT_OBJECT,
-        S3Operation.GET_OBJECT,
-        S3Operation.DELETE_OBJECT,
-        S3Operation.HEAD_OBJECT,
-        S3Operation.POST_OBJECT,
-        S3Operation.COPY_OBJECT,
-        S3Operation.PUT_OBJECT_TAGGING,
-        S3Operation.GET_OBJECT_TAGGING,
-        S3Operation.DELETE_OBJECT_TAGGING,
-        S3Operation.CREATE_MULTIPART_UPLOAD,
-        S3Operation.UPLOAD_PART,
-        S3Operation.COMPLETE_MULTIPART_UPLOAD,
-        S3Operation.ABORT_MULTIPART_UPLOAD,
-    },
-)
+        meta = registry.get(self)
+        return meta.is_object_op if meta else True
