@@ -122,6 +122,15 @@ class S3ProxyApp:
                 await health_handler(scope, receive, send)
                 return
 
+            # Unknown internal endpoint
+            response = S3ErrorResponse(
+                error_code=S3Errors.ACCESS_DENIED,
+                resource=path,
+                message="Unknown internal endpoint",
+            ).to_response()
+            await response(scope, receive, send)
+            return
+
         query_string = scope.get("query_string", b"")
 
         # Parse headers into a dict
