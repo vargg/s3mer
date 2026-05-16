@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from s3m.common.streaming import ASGIStreamReader, AWSChunkedDecoder
@@ -8,7 +10,7 @@ class MockReceive:
         self.chunks = chunks
         self.index = 0
 
-    async def __call__(self) -> dict:
+    async def __call__(self) -> dict[str, Any]:
         if self.index < len(self.chunks):
             chunk = self.chunks[self.index]
             self.index += 1

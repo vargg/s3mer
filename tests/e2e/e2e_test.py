@@ -1,29 +1,39 @@
 import time
 import urllib.request
 import uuid
+from http import HTTPStatus
 
 import pytest
+from botocore.client import BaseClient
 
 pytestmark = pytest.mark.e2e
 
 
-def test_health_endpoint(s3_config):
+def test_health_endpoint(s3_config: dict[str, str]) -> None:
     """Verify health endpoint."""
     url = f"{s3_config['endpoint_url']}/health"
+    if not url.startswith("http"):
+        raise ValueError(f"Unsafe URL: {url}")
+
+    # Audit URL open is safe here because we verify the scheme above
     with urllib.request.urlopen(url, timeout=5) as response:
-        assert response.status == 200
+        assert response.status == HTTPStatus.OK
         assert response.read().decode("utf-8") == '{"status":"ok"}'
 
 
-def test_metrics_endpoint(s3_config):
+def test_metrics_endpoint(s3_config: dict[str, str]) -> None:
     """Verify metrics endpoint."""
     url = f"{s3_config['endpoint_url']}/metrics"
+    if not url.startswith("http"):
+        raise ValueError(f"Unsafe URL: {url}")
+
+    # Audit URL open is safe here because we verify the scheme above
     with urllib.request.urlopen(url, timeout=5) as response:
-        assert response.status == 200
+        assert response.status == HTTPStatus.OK
         assert "s3m_http_requests_total" in response.read().decode("utf-8")
 
 
-def test_worker_replication(s3_proxy, s3_secondary):
+def test_worker_replication(s3_proxy: BaseClient, s3_secondary: BaseClient) -> None:
     """Verify object is replicated to secondary backend."""
     bucket = f"e2e-worker-{uuid.uuid4().hex[:8]}"
     key = "hello.txt"
@@ -50,7 +60,7 @@ def test_worker_replication(s3_proxy, s3_secondary):
     s3_proxy.delete_bucket(Bucket=bucket)
 
 
-def test_multipart_replication(s3_proxy, s3_secondary):
+def test_multipart_replication(s3_proxy: BaseClient, s3_secondary: BaseClient) -> None:
     """Verify fully assembled multipart object is replicated."""
     bucket = f"e2e-mp-repl-{uuid.uuid4().hex[:8]}"
     key = "large.bin"

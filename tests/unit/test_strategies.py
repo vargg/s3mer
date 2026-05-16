@@ -1,5 +1,3 @@
-"""Unit tests for read and write strategies."""
-
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest

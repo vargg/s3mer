@@ -1,20 +1,23 @@
 import time
 import uuid
+from collections.abc import Generator
 
 import pytest
+from boto3.resources.base import ServiceResource
+from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 
 pytestmark = pytest.mark.e2e
 
 
 @pytest.fixture
-def bucket_name():
+def bucket_name() -> str:
     """Generate a unique bucket name for each test."""
     return f"e2e-pytest-{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture
-def test_bucket(s3_proxy, bucket_name):
+def test_bucket(s3_proxy: BaseClient, bucket_name: str) -> Generator[str, None, None]:
     """Create a bucket and ensure it's deleted after the test."""
     s3_proxy.create_bucket(Bucket=bucket_name)
     yield bucket_name
@@ -30,7 +33,7 @@ def test_bucket(s3_proxy, bucket_name):
         pass
 
 
-def test_bucket_lifecycle(s3_proxy, bucket_name):
+def test_bucket_lifecycle(s3_proxy: BaseClient, bucket_name: str) -> None:
     """Test CreateBucket, HeadBucket, ListBuckets, DeleteBucket."""
     # Create
     s3_proxy.create_bucket(Bucket=bucket_name)
@@ -48,11 +51,10 @@ def test_bucket_lifecycle(s3_proxy, bucket_name):
     # Verify deleted
     with pytest.raises(ClientError) as exc:
         s3_proxy.head_bucket(Bucket=bucket_name)
-    print(f"Error after delete: {exc.value}")
     assert exc.value.response["Error"]["Code"] in ("404", "NoSuchBucket")
 
 
-def test_object_operations(s3_proxy, test_bucket):
+def test_object_operations(s3_proxy: BaseClient, test_bucket: str) -> None:
     """Test PutObject, GetObject, HeadObject, CopyObject, DeleteObject."""
     key = "hello.txt"
     body = b"Hello from Pytest!"
@@ -82,7 +84,7 @@ def test_object_operations(s3_proxy, test_bucket):
     s3_proxy.delete_object(Bucket=test_bucket, Key=copy_key)
 
 
-def test_tagging_operations(s3_proxy, test_bucket):
+def test_tagging_operations(s3_proxy: BaseClient, test_bucket: str) -> None:
     """Test PutObjectTagging, GetObjectTagging, DeleteObjectTagging."""
     key = "tag-test.txt"
     s3_proxy.put_object(Bucket=test_bucket, Key=key, Body=b"tags")
@@ -101,7 +103,7 @@ def test_tagging_operations(s3_proxy, test_bucket):
     assert len(get_tags_after["TagSet"]) == 0
 
 
-def test_multipart_upload(s3_proxy, test_bucket):
+def test_multipart_upload(s3_proxy: BaseClient, test_bucket: str) -> None:
     """Test multipart upload lifecycle and Abort."""
     key = "large.bin"
 
@@ -132,7 +134,7 @@ def test_multipart_upload(s3_proxy, test_bucket):
     s3_proxy.abort_multipart_upload(Bucket=test_bucket, Key=abort_key, UploadId=mp_abort["UploadId"])
 
 
-def test_multi_delete(s3_proxy, s3_resource, test_bucket):
+def test_multi_delete(s3_proxy: BaseClient, s3_resource: ServiceResource, test_bucket: str) -> None:
     """Test DeleteObjects (multi-delete) including resource-style prefix delete."""
     keys = ["multi1.txt", "multi2.txt", "other.txt"]
     for k in keys:
@@ -152,14 +154,14 @@ def test_multi_delete(s3_proxy, s3_resource, test_bucket):
     s3_proxy.put_object(Bucket=test_bucket, Key="folder/1.txt", Body=b"a")
     s3_proxy.put_object(Bucket=test_bucket, Key="folder/2.txt", Body=b"b")
 
-    bucket_res = s3_resource.Bucket(test_bucket)
+    bucket_res = s3_resource.Bucket(test_bucket)  # ty: ignore[unresolved-attribute]
     bucket_res.objects.filter(Prefix="folder/").delete()
 
     list_after = s3_proxy.list_objects_v2(Bucket=test_bucket, Prefix="folder/")
     assert list_after.get("KeyCount", 0) == 0
 
 
-def test_replication_eventual(s3_proxy, s3_secondary, test_bucket):
+def test_replication_eventual(s3_proxy: BaseClient, s3_secondary: BaseClient, test_bucket: str) -> None:
     """Verify that objects put through proxy appear on secondary backend."""
     key = "replicated.txt"
     body = b"I will be replicated"

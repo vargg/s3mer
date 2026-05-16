@@ -2,11 +2,12 @@ import os
 
 import boto3
 import pytest
-from botocore.client import Config
+from boto3.resources.base import ServiceResource
+from botocore.client import BaseClient, Config
 
 
 @pytest.fixture(scope="session")
-def s3_config():
+def s3_config() -> dict[str, str]:
     """Get S3 configuration from environment variables."""
     return {
         "endpoint_url": os.environ.get("S3M_PROXY_URL", "http://localhost:8000"),
@@ -18,7 +19,7 @@ def s3_config():
 
 
 @pytest.fixture(scope="session")
-def s3_proxy(s3_config):
+def s3_proxy(s3_config: dict[str, str]) -> BaseClient:
     """Boto3 client for the S3M proxy."""
     return boto3.client(
         "s3",
@@ -31,7 +32,7 @@ def s3_proxy(s3_config):
 
 
 @pytest.fixture(scope="session")
-def s3_secondary(s3_config):
+def s3_secondary(s3_config: dict[str, str]) -> BaseClient:
     """Boto3 client for the secondary backend (direct access)."""
     return boto3.client(
         "s3",
@@ -44,7 +45,7 @@ def s3_secondary(s3_config):
 
 
 @pytest.fixture(scope="session")
-def s3_resource(s3_config):
+def s3_resource(s3_config: dict[str, str]) -> ServiceResource:
     """Boto3 resource for the S3M proxy."""
     return boto3.resource(
         "s3",
