@@ -16,22 +16,30 @@ class S3Request:
     key: str | None = None
 
 
+# S3 Bucket Naming Regex (3-63 chars, alphanumeric start/end, lowercase/numbers/dots/hyphens)
+_BUCKET_REGEX = r"([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])"
+
+# Route Patterns
+_OBJECT_PATTERN = rf"^/{_BUCKET_REGEX}/(.+)$"
+_BUCKET_PATTERN = rf"^/{_BUCKET_REGEX}/?$"
+_SERVICE_PATTERN = r"^/?$"
+
 # Path-style URL patterns (order matters — more specific first)
 _ROUTE_PATTERNS: list[tuple[str, re.Pattern[str], S3Operation]] = [
     # Object operations: /{bucket}/{key...}
-    ("PUT", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.PUT_OBJECT),
-    ("GET", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.GET_OBJECT),
-    ("DELETE", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.DELETE_OBJECT),
-    ("HEAD", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.HEAD_OBJECT),
-    ("POST", re.compile(r"^/([^/]+)/(.+)$"), S3Operation.POST_OBJECT),
+    ("PUT", re.compile(_OBJECT_PATTERN), S3Operation.PUT_OBJECT),
+    ("GET", re.compile(_OBJECT_PATTERN), S3Operation.GET_OBJECT),
+    ("DELETE", re.compile(_OBJECT_PATTERN), S3Operation.DELETE_OBJECT),
+    ("HEAD", re.compile(_OBJECT_PATTERN), S3Operation.HEAD_OBJECT),
+    ("POST", re.compile(_OBJECT_PATTERN), S3Operation.POST_OBJECT),
     # Bucket operations: /{bucket}
-    ("POST", re.compile(r"^/([^/]+)/?$"), S3Operation.DELETE_OBJECTS),
-    ("PUT", re.compile(r"^/([^/]+)/?$"), S3Operation.CREATE_BUCKET),
-    ("DELETE", re.compile(r"^/([^/]+)/?$"), S3Operation.DELETE_BUCKET),
-    ("HEAD", re.compile(r"^/([^/]+)/?$"), S3Operation.HEAD_BUCKET),
-    ("GET", re.compile(r"^/([^/]+)/?$"), S3Operation.LIST_OBJECTS_V2),
+    ("POST", re.compile(_BUCKET_PATTERN), S3Operation.DELETE_OBJECTS),
+    ("PUT", re.compile(_BUCKET_PATTERN), S3Operation.CREATE_BUCKET),
+    ("DELETE", re.compile(_BUCKET_PATTERN), S3Operation.DELETE_BUCKET),
+    ("HEAD", re.compile(_BUCKET_PATTERN), S3Operation.HEAD_BUCKET),
+    ("GET", re.compile(_BUCKET_PATTERN), S3Operation.LIST_OBJECTS_V2),
     # Service operations: /
-    ("GET", re.compile(r"^/?$"), S3Operation.LIST_BUCKETS),
+    ("GET", re.compile(_SERVICE_PATTERN), S3Operation.LIST_BUCKETS),
 ]
 
 

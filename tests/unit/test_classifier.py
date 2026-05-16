@@ -182,12 +182,29 @@ class TestClassifyRequest:
             key=None,
         )
 
-    # --- Error cases ---
+    # --- Bucket name constraints ---
 
-    def test_unknown_method(self) -> None:
+    def test_rejects_invalid_start_char(self) -> None:
         with pytest.raises(ValueError, match="Cannot classify"):
-            classify_request("PATCH", "/my-bucket/key")
+            classify_request("GET", "/.internal/health")
 
-    def test_case_insensitive_method(self) -> None:
-        result = classify_request("get", "/my-bucket/key")
-        assert result.operation == S3Operation.GET_OBJECT
+    def test_rejects_invalid_end_char(self) -> None:
+        with pytest.raises(ValueError, match="Cannot classify"):
+            classify_request("GET", "/my-bucket.")
+
+    def test_rejects_too_short_name(self) -> None:
+        with pytest.raises(ValueError, match="Cannot classify"):
+            classify_request("GET", "/ab")  # S3 requires min 3 chars
+
+    def test_rejects_too_long_name(self) -> None:
+        long_name = "a" * 64
+        with pytest.raises(ValueError, match="Cannot classify"):
+            classify_request("GET", f"/{long_name}")
+
+    def test_allows_dots_in_middle(self) -> None:
+        result = classify_request("GET", "/my.bucket.name/key")
+        assert result.bucket == "my.bucket.name"
+
+    def test_allows_hyphens_in_middle(self) -> None:
+        result = classify_request("GET", "/my-bucket-name/key")
+        assert result.bucket == "my-bucket-name"

@@ -11,7 +11,7 @@ pytestmark = pytest.mark.e2e
 
 def test_health_endpoint(s3_config: dict[str, str]) -> None:
     """Verify health endpoint."""
-    url = f"{s3_config['endpoint_url']}/health"
+    url = f"{s3_config['endpoint_url']}/.internal/health"
     if not url.startswith("http"):
         raise ValueError(f"Unsafe URL: {url}")
 
@@ -23,7 +23,7 @@ def test_health_endpoint(s3_config: dict[str, str]) -> None:
 
 def test_metrics_endpoint(s3_config: dict[str, str]) -> None:
     """Verify metrics endpoint."""
-    url = f"{s3_config['endpoint_url']}/metrics"
+    url = f"{s3_config['endpoint_url']}/.internal/metrics"
     if not url.startswith("http"):
         raise ValueError(f"Unsafe URL: {url}")
 

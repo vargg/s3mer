@@ -138,10 +138,11 @@ class S3ProxyApp:
         method = scope["method"]
         path = scope["path"]
 
-        if method == "GET" and path == "/metrics":
+        # Internal service endpoints (prefixed with . to avoid clashing with S3 buckets)
+        if method == "GET" and path == "/.internal/metrics":
             await metrics_handler(scope, receive, send)
             return
-        if method == "GET" and path == "/health":
+        if method == "GET" and path == "/.internal/health":
             await health_handler(scope, receive, send)
             return
 
