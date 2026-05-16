@@ -85,8 +85,8 @@ class BufferedStreamReader(AsyncIterator[bytes]):
             chunk = self._tmp_file.read(n)
             if chunk:
                 return chunk
-            
-            # If we reached the end of the buffer but the original source 
+
+            # If we reached the end of the buffer but the original source
             # hasn't finished, switch back to live reading.
             if not self._eof_reached:
                 self._read_from_tmp = False

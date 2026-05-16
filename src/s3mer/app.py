@@ -38,7 +38,7 @@ from s3mer.handlers.objects import (
 from s3mer.kafka.broker import create_broker
 from s3mer.kafka.manager import ReplicationManager
 from s3mer.kafka.publisher import ReplicationPublisher
-from s3mer.routing.classifier import classify_request
+from s3mer.routing.classifier import RequestClassifier
 from s3mer.routing.operations import S3Operation
 from s3mer.strategies.read import ReadFallbackStrategy
 from s3mer.strategies.write import WritePrimaryReplicationStrategy
@@ -62,6 +62,7 @@ class S3ProxyApp:
         self._write_strategy: WritePrimaryReplicationStrategy | None = None
         self._broker: Any = None
         self._metrics = get_tracker()
+        self._classifier = RequestClassifier()
         self._started = False
 
     async def startup(self) -> None:
@@ -143,6 +144,8 @@ class S3ProxyApp:
             await health_handler(scope, receive, send)
             return
 
+        query_string = scope.get("query_string", b"")
+
         # Parse headers into a dict
         headers: dict[str, str] = {}
         for name_bytes, value_bytes in scope.get("headers", []):
@@ -155,10 +158,7 @@ class S3ProxyApp:
         try:
             # Classify
             try:
-                query_string = scope.get("query_string", b"")
-                s3_req = classify_request(method, path, query_string, headers)
-                operation_name = s3_req.operation.value
-                scope["s3mer.operation"] = operation_name
+                s3_req = self._classifier.classify(method, path, query_string, headers)
             except ValueError:
                 response = S3ErrorResponse(
                     error_code=S3Errors.METHOD_NOT_ALLOWED,
@@ -167,6 +167,9 @@ class S3ProxyApp:
                 status_code = getattr(response, "status_code", 405)
                 await response(scope, receive, send)
                 return
+
+            operation_name = s3_req.operation.value
+            scope["s3mer.operation"] = operation_name
 
             # Dispatch
             try:

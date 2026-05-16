@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from typing import ClassVar
 from urllib.parse import parse_qsl
 
 from s3mer.routing.operations import S3Operation
@@ -16,106 +17,130 @@ class S3Request:
     key: str | None = None
 
 
-# S3 Bucket Naming Regex (3-63 chars, alphanumeric start/end, lowercase/numbers/dots/hyphens)
-_BUCKET_REGEX = r"([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])"
-
-# Route Patterns
-_OBJECT_PATTERN = rf"^/{_BUCKET_REGEX}/(.+)$"
-_BUCKET_PATTERN = rf"^/{_BUCKET_REGEX}/?$"
-_SERVICE_PATTERN = r"^/?$"
-
-# Path-style URL patterns (order matters — more specific first)
-_ROUTE_PATTERNS: list[tuple[str, re.Pattern[str], S3Operation]] = [
-    # Object operations: /{bucket}/{key...}
-    ("PUT", re.compile(_OBJECT_PATTERN), S3Operation.PUT_OBJECT),
-    ("GET", re.compile(_OBJECT_PATTERN), S3Operation.GET_OBJECT),
-    ("DELETE", re.compile(_OBJECT_PATTERN), S3Operation.DELETE_OBJECT),
-    ("HEAD", re.compile(_OBJECT_PATTERN), S3Operation.HEAD_OBJECT),
-    ("POST", re.compile(_OBJECT_PATTERN), S3Operation.POST_OBJECT),
-    # Bucket operations: /{bucket}
-    ("POST", re.compile(_BUCKET_PATTERN), S3Operation.DELETE_OBJECTS),
-    ("PUT", re.compile(_BUCKET_PATTERN), S3Operation.CREATE_BUCKET),
-    ("DELETE", re.compile(_BUCKET_PATTERN), S3Operation.DELETE_BUCKET),
-    ("HEAD", re.compile(_BUCKET_PATTERN), S3Operation.HEAD_BUCKET),
-    ("GET", re.compile(_BUCKET_PATTERN), S3Operation.LIST_OBJECTS_V2),
-    # Service operations: /
-    ("GET", re.compile(_SERVICE_PATTERN), S3Operation.LIST_BUCKETS),
-]
-
-
-def classify_request(  # noqa: PLR0912
-    method: str, path: str, query_string: bytes = b"", headers: dict[str, str] | None = None
-) -> S3Request:
+class RequestClassifier:
     """
-    Classify an HTTP request into an S3 operation.
+    Classifies HTTP requests into S3 operations using fast path-style routing.
 
-    Uses path-style URL parsing: /{bucket}/{key}
-    And parses query string to determine operation subtypes.
-
-    Args:
-        method: HTTP method (GET, PUT, DELETE, HEAD).
-        path: URL path (e.g., "/my-bucket/photos/cat.jpg").
-        query_string: Raw ASGI query string bytes.
-        headers: Optional dictionary of HTTP headers.
-
-    Returns:
-        Parsed S3Request with operation, bucket, and key.
-
-    Raises:
-        ValueError: If the request cannot be mapped to a known S3 operation.
+    This replaces the linear regex scan with an O(1) method-based lookup
+    and delegated refinement logic for better performance and maintainability.
     """
-    method = method.upper()
-    query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
 
-    for route_method, pattern, base_operation in _ROUTE_PATTERNS:
-        if method != route_method:
-            continue
+    # S3 Bucket Naming Regex (3-63 chars, alphanumeric start/end, lowercase/numbers/dots/hyphens)
+    _BUCKET_NAME_PATTERN = r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    _BUCKET_NAME_RE = re.compile(_BUCKET_NAME_PATTERN)
 
-        match = pattern.match(path)
-        if not match:
-            continue
+    # Base routing table: (Method, Depth) -> Base Operation
+    # Depth 0: Service level (/)
+    # Depth 1: Bucket level (/{bucket})
+    # Depth 2: Object level (/{bucket}/{key})
+    _ROUTING_TABLE: ClassVar[dict[str, dict[int, S3Operation]]] = {
+        "GET": {
+            0: S3Operation.LIST_BUCKETS,
+            1: S3Operation.LIST_OBJECTS_V2,
+            2: S3Operation.GET_OBJECT,
+        },
+        "PUT": {
+            1: S3Operation.CREATE_BUCKET,
+            2: S3Operation.PUT_OBJECT,
+        },
+        "DELETE": {
+            1: S3Operation.DELETE_BUCKET,
+            2: S3Operation.DELETE_OBJECT,
+        },
+        "HEAD": {
+            1: S3Operation.HEAD_BUCKET,
+            2: S3Operation.HEAD_OBJECT,
+        },
+        "POST": {
+            1: S3Operation.DELETE_OBJECTS,
+            2: S3Operation.POST_OBJECT,
+        },
+    }
 
-        groups = match.groups()
-        bucket = groups[0] if len(groups) > 0 else None
-        key = groups[1] if len(groups) > 1 else None
+    def classify(
+        self, method: str, path: str, query_string: bytes = b"", headers: dict[str, str] | None = None
+    ) -> S3Request:
+        """
+        Classify an HTTP request into an S3 operation.
+        """
+        method = method.upper()
+        bucket, key = self._extract_parts(path)
 
-        # Refine operation based on query parameters
-        operation = base_operation
+        # 1. Determine base operation from (method, depth)
+        depth = 0 if not bucket else (2 if key else 1)
+        base_op = self._ROUTING_TABLE.get(method, {}).get(depth)
 
-        if base_operation == S3Operation.POST_OBJECT:
-            if "uploads" in query:
-                operation = S3Operation.CREATE_MULTIPART_UPLOAD
-            elif "uploadId" in query:
-                operation = S3Operation.COMPLETE_MULTIPART_UPLOAD
-            else:
-                raise ValueError(f"Cannot classify POST request without uploads or uploadId: {path}")
+        if base_op is None:
+            raise ValueError(f"Cannot classify request: {method} {path}")
 
-        elif base_operation == S3Operation.PUT_OBJECT:
-            if "tagging" in query:
-                operation = S3Operation.PUT_OBJECT_TAGGING
-            elif "partNumber" in query and "uploadId" in query:
-                operation = S3Operation.UPLOAD_PART
-            elif headers and "x-amz-copy-source" in headers:
-                operation = S3Operation.COPY_OBJECT
+        # 2. Validate bucket if present
+        if bucket and not self._BUCKET_NAME_RE.match(bucket):
+            raise ValueError(f"Invalid bucket name: {bucket}")
 
-        elif base_operation == S3Operation.GET_OBJECT:
-            if "tagging" in query:
-                operation = S3Operation.GET_OBJECT_TAGGING
-
-        elif base_operation == S3Operation.DELETE_OBJECT:
-            if "tagging" in query:
-                operation = S3Operation.DELETE_OBJECT_TAGGING
-            elif "uploadId" in query:
-                operation = S3Operation.ABORT_MULTIPART_UPLOAD
-
-        elif base_operation == S3Operation.DELETE_OBJECTS and "delete" not in query:
-            msg = f"Cannot classify POST request without 'delete' query param: {path}"
-            raise ValueError(msg)
-
-        elif base_operation == S3Operation.LIST_OBJECTS_V2 and ("list-type" not in query or query["list-type"] != "2"):
-            operation = S3Operation.LIST_OBJECTS
+        # 3. Refine operation based on query parameters and headers
+        query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
+        operation = self._refine_operation(base_op, query, headers, path)
 
         return S3Request(operation=operation, bucket=bucket, key=key)
 
-    msg = f"Cannot classify request: {method} {path}"
-    raise ValueError(msg)
+    def _extract_parts(self, path: str) -> tuple[str | None, str | None]:
+        """Fast path-style extraction of bucket and key."""
+        parts = path.strip("/").split("/", 1)
+        if not parts or not parts[0]:
+            return None, None
+
+        bucket = parts[0]
+        key = parts[1] if len(parts) > 1 else None
+        return bucket, key
+
+    def _refine_operation(
+        self, base_op: S3Operation, query: dict[str, str], headers: dict[str, str] | None, path: str
+    ) -> S3Operation:
+        """Dispatch to specialized refinement logic based on the base operation's method."""
+        match base_op:
+            case S3Operation.PUT_OBJECT:
+                return self._refine_put(query, headers)
+            case S3Operation.POST_OBJECT:
+                return self._refine_post(query, path)
+            case S3Operation.GET_OBJECT:
+                return self._refine_get(query)
+            case S3Operation.DELETE_OBJECT:
+                return self._refine_delete(query)
+            case S3Operation.DELETE_OBJECTS:
+                if "delete" not in query:
+                    raise ValueError(f"Cannot classify POST request without 'delete' query param: {path}")
+                return base_op
+            case S3Operation.LIST_OBJECTS_V2:
+                if "list-type" not in query or query["list-type"] != "2":
+                    return S3Operation.LIST_OBJECTS
+                return base_op
+            case _:
+                return base_op
+
+    def _refine_put(self, query: dict[str, str], headers: dict[str, str] | None) -> S3Operation:
+        if "tagging" in query:
+            return S3Operation.PUT_OBJECT_TAGGING
+        if "partNumber" in query and "uploadId" in query:
+            return S3Operation.UPLOAD_PART
+        if headers and "x-amz-copy-source" in headers:
+            return S3Operation.COPY_OBJECT
+        return S3Operation.PUT_OBJECT
+
+    def _refine_post(self, query: dict[str, str], path: str) -> S3Operation:
+        if "uploads" in query:
+            return S3Operation.CREATE_MULTIPART_UPLOAD
+        if "uploadId" in query:
+            return S3Operation.COMPLETE_MULTIPART_UPLOAD
+        raise ValueError(f"Cannot classify POST request without uploads or uploadId: {path}")
+
+    def _refine_get(self, query: dict[str, str]) -> S3Operation:
+        if "tagging" in query:
+            return S3Operation.GET_OBJECT_TAGGING
+        return S3Operation.GET_OBJECT
+
+    def _refine_delete(self, query: dict[str, str]) -> S3Operation:
+        if "tagging" in query:
+            return S3Operation.DELETE_OBJECT_TAGGING
+        if "uploadId" in query:
+            return S3Operation.ABORT_MULTIPART_UPLOAD
+        return S3Operation.DELETE_OBJECT

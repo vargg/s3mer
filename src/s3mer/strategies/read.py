@@ -70,6 +70,5 @@ class ReadFallbackStrategy:
             key=params.get("Key"),
         )
         if last_error is None:
-            msg = "No backends configured"
-            raise RuntimeError(msg)
+            raise RuntimeError("No backends configured")
         raise last_error
