@@ -10,17 +10,17 @@ from botocore.client import BaseClient, Config
 def s3_config() -> dict[str, str]:
     """Get S3 configuration from environment variables."""
     return {
-        "endpoint_url": os.environ.get("S3M_PROXY_URL", "http://localhost:8000"),
-        "secondary_url": os.environ.get("S3M_SECONDARY_URL", "http://localhost:9002"),
-        "access_key": os.environ.get("S3M_ACCESS_KEY", "minioadmin"),
-        "secret_key": os.environ.get("S3M_SECRET_KEY", "minioadmin"),
-        "region": os.environ.get("S3M_REGION", "us-east-1"),
+        "endpoint_url": os.environ.get("S3MER_PROXY_URL", "http://localhost:8000"),
+        "secondary_url": os.environ.get("S3MER_SECONDARY_URL", "http://localhost:9002"),
+        "access_key": os.environ.get("S3MER_ACCESS_KEY", "minioadmin"),
+        "secret_key": os.environ.get("S3MER_SECRET_KEY", "minioadmin"),
+        "region": os.environ.get("S3MER_REGION", "us-east-1"),
     }
 
 
 @pytest.fixture(scope="session")
 def s3_proxy(s3_config: dict[str, str]) -> BaseClient:
-    """Boto3 client for the S3M proxy."""
+    """Boto3 client for the S3MER proxy."""
     return boto3.client(
         "s3",
         endpoint_url=s3_config["endpoint_url"],
@@ -46,7 +46,7 @@ def s3_secondary(s3_config: dict[str, str]) -> BaseClient:
 
 @pytest.fixture(scope="session")
 def s3_resource(s3_config: dict[str, str]) -> ServiceResource:
-    """Boto3 resource for the S3M proxy."""
+    """Boto3 resource for the S3MER proxy."""
     return boto3.resource(
         "s3",
         endpoint_url=s3_config["endpoint_url"],

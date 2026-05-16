@@ -35,15 +35,15 @@ class KafkaConfig(BaseModel):
     """Kafka connection and topic configuration."""
 
     bootstrap_servers: list[str] = Field(default=["localhost:9092"])
-    topic: str = Field(default="s3m.replication")
-    consumer_group: str = Field(default="s3m-workers")
+    topic: str = Field(default="s3mer.replication")
+    consumer_group: str = Field(default="s3mer-workers")
 
 
 class Settings(BaseSettings):
     """Root application settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="S3M_",
+        env_prefix="S3MER_",
         env_nested_delimiter="__",
         # Allow loading from a yaml file if it exists
         yaml_file=Path(__file__).parent.parent.parent.parent.joinpath("config/settings.yaml"),

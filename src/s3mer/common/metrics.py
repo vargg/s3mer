@@ -59,52 +59,52 @@ class NullMetricsTracker:
 # --- Internal Prometheus Primitives ---
 
 _HTTP_REQUESTS_TOTAL = Counter(
-    "s3m_http_requests_total",
+    "s3mer_http_requests_total",
     "Total HTTP requests to the S3 proxy",
     ["method", "operation", "status"],
 )
 
 _HTTP_REQUEST_DURATION_SECONDS = Histogram(
-    "s3m_http_request_duration_seconds",
+    "s3mer_http_request_duration_seconds",
     "HTTP request latency in seconds",
     ["method", "operation"],
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, INF),
 )
 
 _DATA_TRANSFER_BYTES_TOTAL = Counter(
-    "s3m_data_transfer_bytes_total",
+    "s3mer_data_transfer_bytes_total",
     "Total bytes transferred through the proxy",
     ["direction", "operation"],
 )
 
 _REPLICATION_TASKS_TOTAL = Counter(
-    "s3m_replication_tasks_total",
+    "s3mer_replication_tasks_total",
     "Total replication tasks scheduled",
     ["operation", "target_backend"],
 )
 
 _REPLICATION_FANOUT_FACTOR = Histogram(
-    "s3m_replication_fanout_factor",
+    "s3mer_replication_fanout_factor",
     "Number of replication messages generated per request",
     ["operation"],
     buckets=(1, 2, 5, 10, 20, 50, 100),
 )
 
 _BACKEND_STATUS = Gauge(
-    "s3m_backend_status",
+    "s3mer_backend_status",
     "Health status of underlying backends (1=UP, 0=DOWN)",
     ["backend_name"],
 )
 
 _BACKEND_REQUEST_DURATION_SECONDS = Histogram(
-    "s3m_backend_request_duration_seconds",
+    "s3mer_backend_request_duration_seconds",
     "Latency of requests to underlying backends",
     ["backend_name", "operation", "status"],
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, INF),
 )
 
 _ACTIVE_STREAM_READERS = Gauge(
-    "s3m_active_stream_readers",
+    "s3mer_active_stream_readers",
     "Number of active BufferedStreamReader instances",
 )
 

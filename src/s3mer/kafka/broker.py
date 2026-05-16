@@ -2,7 +2,7 @@
 
 from faststream.kafka import KafkaBroker
 
-from s3m.config.settings import KafkaConfig
+from s3mer.config.settings import KafkaConfig
 
 
 def create_broker(config: KafkaConfig) -> KafkaBroker:

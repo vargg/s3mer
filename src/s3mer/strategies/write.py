@@ -6,13 +6,13 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
-from s3m.backends.pool import BackendPool
-from s3m.common.logging import get_logger
-from s3m.common.metrics import MetricsTracker
-from s3m.common.streaming import BufferedStreamReader
-from s3m.kafka.manager import ReplicationManager
-from s3m.kafka.publisher import ReplicationPublisher
-from s3m.routing.operations import S3Operation
+from s3mer.backends.pool import BackendPool
+from s3mer.common.logging import get_logger
+from s3mer.common.metrics import MetricsTracker
+from s3mer.common.streaming import BufferedStreamReader
+from s3mer.kafka.manager import ReplicationManager
+from s3mer.kafka.publisher import ReplicationPublisher
+from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
 

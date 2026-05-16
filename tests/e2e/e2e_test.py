@@ -30,7 +30,7 @@ def test_metrics_endpoint(s3_config: dict[str, str]) -> None:
     # Audit URL open is safe here because we verify the scheme above
     with urllib.request.urlopen(url, timeout=5) as response:
         assert response.status == HTTPStatus.OK
-        assert "s3m_http_requests_total" in response.read().decode("utf-8")
+        assert "s3mer_http_requests_total" in response.read().decode("utf-8")
 
 
 def test_worker_replication(s3_proxy: BaseClient, s3_secondary: BaseClient) -> None:

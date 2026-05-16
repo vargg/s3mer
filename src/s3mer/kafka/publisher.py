@@ -2,8 +2,8 @@
 
 from faststream.kafka import KafkaBroker
 
-from s3m.common.logging import get_logger
-from s3m.kafka.messages import ReplicationMessage
+from s3mer.common.logging import get_logger
+from s3mer.kafka.messages import ReplicationMessage
 
 logger = get_logger(__name__)
 

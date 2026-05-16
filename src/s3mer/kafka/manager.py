@@ -2,11 +2,11 @@
 
 from typing import Any
 
-from s3m.common.logging import get_logger
-from s3m.common.metrics import MetricsTracker
-from s3m.kafka.messages import ReplicationMessage
-from s3m.kafka.publisher import ReplicationPublisher
-from s3m.routing.operations import S3Operation
+from s3mer.common.logging import get_logger
+from s3mer.common.metrics import MetricsTracker
+from s3mer.kafka.messages import ReplicationMessage
+from s3mer.kafka.publisher import ReplicationPublisher
+from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
 

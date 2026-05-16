@@ -4,10 +4,10 @@ from typing import Any
 from aiobotocore.config import AioConfig
 from aiobotocore.session import get_session
 
-from s3m.common.logging import get_logger
-from s3m.common.metrics import MetricsTracker
-from s3m.config.settings import BackendConfig
-from s3m.routing.operations import S3Operation
+from s3mer.common.logging import get_logger
+from s3mer.common.metrics import MetricsTracker
+from s3mer.config.settings import BackendConfig
+from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
 

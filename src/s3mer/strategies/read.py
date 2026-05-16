@@ -2,9 +2,9 @@
 
 from typing import Any
 
-from s3m.backends.pool import BackendPool
-from s3m.common.logging import get_logger
-from s3m.routing.operations import S3Operation
+from s3mer.backends.pool import BackendPool
+from s3mer.common.logging import get_logger
+from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
 

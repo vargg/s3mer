@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import ClassVar, Self
 
-from s3m.common.responses import ASGIResponse
+from s3mer.common.responses import ASGIResponse
 
 
 @dataclass(frozen=True, slots=True)

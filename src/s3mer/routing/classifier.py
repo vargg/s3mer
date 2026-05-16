@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qsl
 
-from s3m.routing.operations import S3Operation
+from s3mer.routing.operations import S3Operation
 
 
 @dataclass(frozen=True, slots=True)

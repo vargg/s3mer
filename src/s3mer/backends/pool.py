@@ -1,9 +1,9 @@
 """Backend pool — manages all configured S3 backend clients."""
 
-from s3m.backends.client import S3BackendClient
-from s3m.common.logging import get_logger
-from s3m.common.metrics import MetricsTracker
-from s3m.config.settings import BackendConfig
+from s3mer.backends.client import S3BackendClient
+from s3mer.common.logging import get_logger
+from s3mer.common.metrics import MetricsTracker
+from s3mer.config.settings import BackendConfig
 
 logger = get_logger(__name__)
 

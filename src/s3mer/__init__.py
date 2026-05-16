@@ -1,1 +1,1 @@
-"""s3m — S3 Multi-Backend Proxy Service."""
+"""s3mer — S3 Multi-Backend Proxy Service."""

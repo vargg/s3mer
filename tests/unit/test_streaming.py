@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from s3m.common.streaming import ASGIStreamReader, AWSChunkedDecoder
+from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder
 
 
 class MockReceive:

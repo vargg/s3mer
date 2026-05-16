@@ -4,20 +4,20 @@ from typing import Any
 from urllib.parse import parse_qsl
 from xml.etree import ElementTree as ET
 
-from s3m.backends.pool import BackendPool
-from s3m.common.errors import S3ErrorResponse
-from s3m.common.logging import get_logger
-from s3m.common.responses import ASGIResponse, ASGIStreamingResponse
-from s3m.common.streaming import stream_s3_body
-from s3m.common.xml import (
+from s3mer.backends.pool import BackendPool
+from s3mer.common.errors import S3ErrorResponse
+from s3mer.common.logging import get_logger
+from s3mer.common.responses import ASGIResponse, ASGIStreamingResponse
+from s3mer.common.streaming import stream_s3_body
+from s3mer.common.xml import (
     complete_multipart_upload_xml,
     copy_object_result_xml,
     create_multipart_upload_xml,
     get_object_tagging_xml,
 )
-from s3m.routing.operations import S3Operation
-from s3m.strategies.read import ReadFallbackStrategy
-from s3m.strategies.write import WritePrimaryReplicationStrategy
+from s3mer.routing.operations import S3Operation
+from s3mer.strategies.read import ReadFallbackStrategy
+from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
 logger = get_logger(__name__)
 

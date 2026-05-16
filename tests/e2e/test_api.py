@@ -90,7 +90,7 @@ def test_tagging_operations(s3_proxy: BaseClient, test_bucket: str) -> None:
     s3_proxy.put_object(Bucket=test_bucket, Key=key, Body=b"tags")
 
     # Put tags
-    tags = {"TagSet": [{"Key": "Project", "Value": "S3M"}]}
+    tags = {"TagSet": [{"Key": "Project", "Value": "S3MER"}]}
     s3_proxy.put_object_tagging(Bucket=test_bucket, Key=key, Tagging=tags)
 
     # Get tags

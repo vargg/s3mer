@@ -2,10 +2,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from s3m.common.metrics import NullMetricsTracker
-from s3m.routing.operations import S3Operation
-from s3m.strategies.read import ReadFallbackStrategy
-from s3m.strategies.write import WritePrimaryReplicationStrategy
+from s3mer.common.metrics import NullMetricsTracker
+from s3mer.routing.operations import S3Operation
+from s3mer.strategies.read import ReadFallbackStrategy
+from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
 
 def _make_mock_client(name: str, priority: int = 0, is_primary: bool = False) -> MagicMock:

@@ -4,11 +4,11 @@ import asyncio
 
 from faststream.kafka import KafkaBroker
 
-from s3m.backends.client import S3BackendClient
-from s3m.backends.pool import BackendPool
-from s3m.common.logging import get_logger
-from s3m.kafka.messages import ReplicationMessage
-from s3m.routing.operations import S3Operation
+from s3mer.backends.client import S3BackendClient
+from s3mer.backends.pool import BackendPool
+from s3mer.common.logging import get_logger
+from s3mer.kafka.messages import ReplicationMessage
+from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
 
@@ -23,7 +23,7 @@ def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> 
     This is called during worker startup to wire up the message handler.
     """
 
-    @broker.subscriber(topic, group_id="s3m-workers")
+    @broker.subscriber(topic, group_id="s3mer-workers")
     async def handle_replication(msg_raw: str) -> None:
         """
         Process a replication message — replicate an S3 operation
@@ -79,7 +79,7 @@ def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> 
                 operation=message.operation,
                 targets=failed_targets,
             )
-            await broker.publish(message.model_dump_json(), topic="s3m.replication.dlq")
+            await broker.publish(message.model_dump_json(), topic="s3mer.replication.dlq")
         else:
             await asyncio.sleep(RETRY_DELAY)
             await broker.publish(message.model_dump_json(), topic=topic)

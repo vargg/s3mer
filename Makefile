@@ -2,7 +2,7 @@
 
 # Default target: show help
 help:
-	@echo "S3M Development Makefile"
+	@echo "S3MER Development Makefile"
 	@echo "Usage:"
 	@echo "  make lint         Run all linting and type checking (format, check, type-check)"
 	@echo "  make format       Format code with ruff"

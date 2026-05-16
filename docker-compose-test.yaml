@@ -37,17 +37,17 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      CLUSTER_ID: "s3m-test-cluster"
+      CLUSTER_ID: "s3mer-test-cluster"
 
-  # --- S3M Services ---
-  s3m-proxy:
+  # --- S3MER Services ---
+  s3mer-proxy:
     build:
       context: .
       target: final
     environment:
-      S3M_LOG_LEVEL: info
-      S3M_KAFKA__BOOTSTRAP_SERVERS: '["kafka:9092"]'
-      S3M_BACKENDS: '[{"name": "primary", "endpoint_url": "http://minio-primary:9000", "access_key": "minioadmin", "secret_key": "minioadmin", "is_primary": true}, {"name": "secondary", "endpoint_url": "http://minio-secondary:9000", "access_key": "minioadmin", "secret_key": "minioadmin"}]'
+      S3MER_LOG_LEVEL: info
+      S3MER_KAFKA__BOOTSTRAP_SERVERS: '["kafka:9092"]'
+      S3MER_BACKENDS: '[{"name": "primary", "endpoint_url": "http://minio-primary:9000", "access_key": "minioadmin", "secret_key": "minioadmin", "is_primary": true}, {"name": "secondary", "endpoint_url": "http://minio-secondary:9000", "access_key": "minioadmin", "secret_key": "minioadmin"}]'
     depends_on:
       minio-primary:
         condition: service_healthy
@@ -63,19 +63,19 @@ services:
     ports:
       - "8000:8000"
 
-  s3m-worker:
+  s3mer-worker:
     build:
       context: .
       target: final
-    command: python -m s3m.worker.app
+    command: python -m s3mer.worker.app
     environment:
-      S3M_LOG_LEVEL: info
-      S3M_KAFKA__BOOTSTRAP_SERVERS: '["kafka:9092"]'
-      S3M_BACKENDS: '[{"name": "primary", "endpoint_url": "http://minio-primary:9000", "access_key": "minioadmin", "secret_key": "minioadmin", "is_primary": true}, {"name": "secondary", "endpoint_url": "http://minio-secondary:9000", "access_key": "minioadmin", "secret_key": "minioadmin"}]'
+      S3MER_LOG_LEVEL: info
+      S3MER_KAFKA__BOOTSTRAP_SERVERS: '["kafka:9092"]'
+      S3MER_BACKENDS: '[{"name": "primary", "endpoint_url": "http://minio-primary:9000", "access_key": "minioadmin", "secret_key": "minioadmin", "is_primary": true}, {"name": "secondary", "endpoint_url": "http://minio-secondary:9000", "access_key": "minioadmin", "secret_key": "minioadmin"}]'
     depends_on:
       kafka:
         condition: service_started
-      s3m-proxy:
+      s3mer-proxy:
         condition: service_started
 
   # --- Test Runner ---
@@ -84,13 +84,13 @@ services:
       context: .
       target: test
     environment:
-      S3M_PROXY_URL: http://s3m-proxy:8000
-      S3M_SECONDARY_URL: http://minio-secondary:9000
-      S3M_ACCESS_KEY: minioadmin
-      S3M_SECRET_KEY: minioadmin
-      S3M_REGION: us-east-1
+      S3MER_PROXY_URL: http://s3mer-proxy:8000
+      S3MER_SECONDARY_URL: http://minio-secondary:9000
+      S3MER_ACCESS_KEY: minioadmin
+      S3MER_SECRET_KEY: minioadmin
+      S3MER_REGION: us-east-1
     depends_on:
-      s3m-proxy:
+      s3mer-proxy:
         condition: service_healthy
-      s3m-worker:
+      s3mer-worker:
         condition: service_started

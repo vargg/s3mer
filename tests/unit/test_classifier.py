@@ -2,8 +2,8 @@
 
 import pytest
 
-from s3m.routing.classifier import S3Request, classify_request
-from s3m.routing.operations import S3Operation
+from s3mer.routing.classifier import S3Request, classify_request
+from s3mer.routing.operations import S3Operation
 
 
 class TestClassifyRequest:

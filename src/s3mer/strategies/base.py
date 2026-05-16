@@ -2,8 +2,8 @@
 
 from typing import Any, Protocol
 
-from s3m.backends.pool import BackendPool
-from s3m.routing.operations import S3Operation
+from s3mer.backends.pool import BackendPool
+from s3mer.routing.operations import S3Operation
 
 
 class OperationStrategy(Protocol):

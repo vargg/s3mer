@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, Callable
 
-from s3m.common.types import Receive, Scope, Send
+from s3mer.common.types import Receive, Scope, Send
 
 
 class ASGIResponse:

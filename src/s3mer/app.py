@@ -4,14 +4,14 @@ import time
 from http import HTTPStatus
 from typing import Any
 
-from s3m.backends.pool import BackendPool
-from s3m.common.errors import S3ErrorResponse, S3Errors
-from s3m.common.logging import get_logger, setup_logging
-from s3m.common.metrics import get_tracker
-from s3m.common.streaming import ASGIStreamReader, AWSChunkedDecoder
-from s3m.common.types import Receive, Scope, Send
-from s3m.config.settings import load_settings
-from s3m.handlers.buckets import (
+from s3mer.backends.pool import BackendPool
+from s3mer.common.errors import S3ErrorResponse, S3Errors
+from s3mer.common.logging import get_logger, setup_logging
+from s3mer.common.metrics import get_tracker
+from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder
+from s3mer.common.types import Receive, Scope, Send
+from s3mer.config.settings import load_settings
+from s3mer.handlers.buckets import (
     handle_create_bucket,
     handle_delete_bucket,
     handle_delete_objects,
@@ -20,8 +20,8 @@ from s3m.handlers.buckets import (
     handle_list_objects,
     handle_list_objects_v2,
 )
-from s3m.handlers.internal import health_handler, metrics_handler
-from s3m.handlers.objects import (
+from s3mer.handlers.internal import health_handler, metrics_handler
+from s3mer.handlers.objects import (
     handle_abort_multipart_upload,
     handle_complete_multipart_upload,
     handle_copy_object,
@@ -35,13 +35,13 @@ from s3m.handlers.objects import (
     handle_put_object_tagging,
     handle_upload_part,
 )
-from s3m.kafka.broker import create_broker
-from s3m.kafka.manager import ReplicationManager
-from s3m.kafka.publisher import ReplicationPublisher
-from s3m.routing.classifier import classify_request
-from s3m.routing.operations import S3Operation
-from s3m.strategies.read import ReadFallbackStrategy
-from s3m.strategies.write import WritePrimaryReplicationStrategy
+from s3mer.kafka.broker import create_broker
+from s3mer.kafka.manager import ReplicationManager
+from s3mer.kafka.publisher import ReplicationPublisher
+from s3mer.routing.classifier import classify_request
+from s3mer.routing.operations import S3Operation
+from s3mer.strategies.read import ReadFallbackStrategy
+from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
 logger = get_logger(__name__)
 
@@ -69,8 +69,8 @@ class S3ProxyApp:
         settings = load_settings()
         setup_logging(settings.log_level)
 
-        log = get_logger("s3m.startup")
-        log.info("Starting s3m proxy", backends=[b.name for b in settings.backends])
+        log = get_logger("s3mer.startup")
+        log.info("Starting s3mer proxy", backends=[b.name for b in settings.backends])
 
         # Backend pool
         self._pool = BackendPool(settings.backends, self._metrics)
@@ -87,19 +87,19 @@ class S3ProxyApp:
         self._write_strategy = WritePrimaryReplicationStrategy(replication_manager, self._metrics)
 
         self._started = True
-        log.info("s3m proxy ready")
+        log.info("s3mer proxy ready")
 
     async def shutdown(self) -> None:
         """Clean up resources. Called once by the ASGI server."""
-        log = get_logger("s3m.shutdown")
-        log.info("Shutting down s3m proxy")
+        log = get_logger("s3mer.shutdown")
+        log.info("Shutting down s3mer proxy")
 
         if self._broker:
             await self._broker.close()
         if self._pool:
             await self._pool.close()
 
-        log.info("s3m proxy stopped")
+        log.info("s3mer proxy stopped")
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """ASGI entry point."""
@@ -158,7 +158,7 @@ class S3ProxyApp:
                 query_string = scope.get("query_string", b"")
                 s3_req = classify_request(method, path, query_string, headers)
                 operation_name = s3_req.operation.value
-                scope["s3m.operation"] = operation_name
+                scope["s3mer.operation"] = operation_name
             except ValueError:
                 response = S3ErrorResponse(
                     error_code=S3Errors.METHOD_NOT_ALLOWED,

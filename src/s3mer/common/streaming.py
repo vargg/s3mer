@@ -5,9 +5,9 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from enum import Enum, auto
 from typing import Any, Self
 
-from s3m.common.logging import get_logger
-from s3m.common.metrics import MetricsTracker
-from s3m.common.types import Receive
+from s3mer.common.logging import get_logger
+from s3mer.common.metrics import MetricsTracker
+from s3mer.common.types import Receive
 
 logger = get_logger(__name__)
 
