@@ -8,38 +8,14 @@ from s3mer.backends.pool import BackendPool
 from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
-from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder
 from s3mer.common.types import Receive, Scope, Send
 from s3mer.config.settings import load_settings
-from s3mer.handlers.buckets import (
-    handle_create_bucket,
-    handle_delete_bucket,
-    handle_delete_objects,
-    handle_head_bucket,
-    handle_list_buckets,
-    handle_list_objects,
-    handle_list_objects_v2,
-)
 from s3mer.handlers.internal import health_handler, metrics_handler
-from s3mer.handlers.objects import (
-    handle_abort_multipart_upload,
-    handle_complete_multipart_upload,
-    handle_copy_object,
-    handle_create_multipart_upload,
-    handle_delete_object,
-    handle_delete_object_tagging,
-    handle_get_object,
-    handle_get_object_tagging,
-    handle_head_object,
-    handle_put_object,
-    handle_put_object_tagging,
-    handle_upload_part,
-)
 from s3mer.kafka.broker import create_broker
 from s3mer.kafka.manager import ReplicationManager
 from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.routing.classifier import RequestClassifier
-from s3mer.routing.operations import S3Operation
+from s3mer.routing.dispatcher import RequestDispatcher
 from s3mer.strategies.read import ReadFallbackStrategy
 from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
@@ -51,15 +27,13 @@ class S3ProxyApp:
     Pure ASGI application that intercepts all HTTP requests,
     classifies them as S3 operations, and dispatches to the
     appropriate handler via read/write strategies.
-
-    This bypasses Litestar's routing entirely — every request
-    is an S3 API call routed through our classifier.
     """
 
     def __init__(self) -> None:
         self._pool: BackendPool | None = None
         self._read_strategy: ReadFallbackStrategy | None = None
         self._write_strategy: WritePrimaryReplicationStrategy | None = None
+        self._dispatcher: RequestDispatcher | None = None
         self._broker: Any = None
         self._metrics = get_tracker()
         self._classifier = RequestClassifier()
@@ -86,6 +60,9 @@ class S3ProxyApp:
         # Strategies
         self._read_strategy = ReadFallbackStrategy()
         self._write_strategy = WritePrimaryReplicationStrategy(replication_manager, self._metrics)
+
+        # Dispatcher
+        self._dispatcher = RequestDispatcher(self._pool, self._read_strategy, self._write_strategy, self._metrics)
 
         self._started = True
         log.info("s3mer proxy ready")
@@ -136,13 +113,14 @@ class S3ProxyApp:
         method = scope["method"]
         path = scope["path"]
 
-        # Internal service endpoints (prefixed with . to avoid clashing with S3 buckets)
-        if method == "GET" and path == "/.internal/metrics":
-            await metrics_handler(scope, receive, send)
-            return
-        if method == "GET" and path == "/.internal/health":
-            await health_handler(scope, receive, send)
-            return
+        # Fast-path for internal service endpoints
+        if path.startswith("/.internal/"):
+            if method == "GET" and path == "/.internal/metrics":
+                await metrics_handler(scope, receive, send)
+                return
+            if method == "GET" and path == "/.internal/health":
+                await health_handler(scope, receive, send)
+                return
 
         query_string = scope.get("query_string", b"")
 
@@ -156,7 +134,7 @@ class S3ProxyApp:
         status_code = 500
 
         try:
-            # Classify
+            # 1. Classify
             try:
                 s3_req = self._classifier.classify(method, path, query_string, headers)
             except ValueError:
@@ -171,40 +149,30 @@ class S3ProxyApp:
             operation_name = s3_req.operation.value
             scope["s3mer.operation"] = operation_name
 
-            # Dispatch
-            try:
-                if s3_req.operation != S3Operation.LIST_BUCKETS and s3_req.bucket is None:
-                    response = S3ErrorResponse(
-                        error_code=S3Errors.INVALID_BUCKET_NAME,
-                        resource=path,
-                    ).to_response()
-                else:
-                    response = await self._dispatch(
-                        s3_req.operation,
-                        operation_name,
-                        s3_req.bucket or "",
-                        s3_req.key,
-                        receive,
-                        headers,
-                        query_string,
-                    )
-            except Exception as exc:
-                logger.exception("Unhandled error in S3 proxy", error=str(exc))
-                response = S3ErrorResponse.from_client_error(exc, resource=path).to_response()
+            # 2. Dispatch
+            if self._dispatcher is None:
+                response = S3ErrorResponse(
+                    error_code=S3Errors.INTERNAL_ERROR,
+                    message="Proxy not initialized",
+                ).to_response()
+            else:
+                try:
+                    response = await self._dispatcher.dispatch(s3_req, receive, headers, query_string)
+                except Exception as exc:
+                    logger.exception("Unhandled error in S3 proxy", error=str(exc))
+                    response = S3ErrorResponse.from_client_error(exc, resource=path).to_response()
 
-            # If it was a PutObject/UploadPart and it failed, we might not have consumed the body.
-            # Add Connection: close to ensure the client doesn't reuse this corrupted connection.
+            # 3. Connection management for failures during body reads
             if (
                 operation_name in ("put_object", "upload_part")
                 and getattr(response, "status_code", 200) >= HTTPStatus.BAD_REQUEST
                 and hasattr(response, "extra_headers")
             ):
-                # response.extra_headers is used in our ASGIResponse/ASGIStreamingResponse classes
                 response.extra_headers["connection"] = "close"
 
             status_code = getattr(response, "status_code", 500)
 
-            # Inject metrics callback for outbound data transfer
+            # 4. Metrics callback for outbound data transfer
             def record_out_bytes(n: int) -> None:
                 self._metrics.record_data_transfer(direction="out", operation=operation_name, bytes_count=n)
 
@@ -215,180 +183,6 @@ class S3ProxyApp:
         finally:
             duration = time.perf_counter() - start_time
             self._metrics.record_request(method=method, operation=operation_name, status=status_code, duration=duration)
-
-    async def _dispatch(
-        self,
-        operation: S3Operation,
-        operation_name: str,
-        bucket: str,
-        key: str | None,
-        receive: Receive,
-        headers: dict[str, str],
-        query_string: bytes,
-    ) -> Any:
-        """Dispatch an S3 operation to the appropriate handler.
-
-        Called after LIST_BUCKETS is already handled, so bucket is always set.
-        """
-        pool = self._pool
-        read_strategy = self._read_strategy
-        write_strategy = self._write_strategy
-
-        # These are guaranteed by startup(); guard against misconfigured calls.
-        if pool is None or read_strategy is None or write_strategy is None:
-            return S3ErrorResponse(
-                error_code=S3Errors.INTERNAL_ERROR,
-                message="Proxy not initialized",
-            ).to_response()
-
-        match operation:
-            # Bucket operations
-            case S3Operation.CREATE_BUCKET:
-                return await handle_create_bucket(bucket, pool, write_strategy)
-            case S3Operation.DELETE_BUCKET:
-                return await handle_delete_bucket(bucket, pool, write_strategy)
-            case S3Operation.HEAD_BUCKET:
-                return await handle_head_bucket(bucket, pool, read_strategy)
-            case S3Operation.LIST_BUCKETS:
-                return await handle_list_buckets(pool, read_strategy)
-            case S3Operation.LIST_OBJECTS_V2:
-                return await handle_list_objects_v2(bucket, pool, read_strategy, query_string)
-            case S3Operation.LIST_OBJECTS:
-                return await handle_list_objects(bucket, pool, read_strategy, query_string)
-            case S3Operation.DELETE_OBJECTS:
-                body = await self._read_body(receive, operation_name)
-                return await handle_delete_objects(bucket, pool, write_strategy, body)
-
-            # Object operations — key is required
-            case (
-                S3Operation.PUT_OBJECT
-                | S3Operation.COPY_OBJECT
-                | S3Operation.GET_OBJECT
-                | S3Operation.DELETE_OBJECT
-                | S3Operation.HEAD_OBJECT
-                | S3Operation.PUT_OBJECT_TAGGING
-                | S3Operation.GET_OBJECT_TAGGING
-                | S3Operation.DELETE_OBJECT_TAGGING
-                | S3Operation.CREATE_MULTIPART_UPLOAD
-                | S3Operation.UPLOAD_PART
-                | S3Operation.COMPLETE_MULTIPART_UPLOAD
-                | S3Operation.ABORT_MULTIPART_UPLOAD
-            ):
-                if key is None:
-                    return S3ErrorResponse(
-                        error_code=S3Errors.NO_SUCH_KEY,
-                        message="Object key is required",
-                        resource=f"/{bucket}",
-                    ).to_response()
-                return await self._dispatch_object(
-                    operation,
-                    operation_name,
-                    bucket,
-                    key,
-                    receive,
-                    headers,
-                    pool,
-                    read_strategy,
-                    write_strategy,
-                    query_string,
-                )
-
-            case _:
-                return S3ErrorResponse(
-                    error_code=S3Errors.METHOD_NOT_ALLOWED,
-                    message=f"Operation {operation} not implemented",
-                ).to_response()
-
-    async def _dispatch_object(  # noqa: PLR0912
-        self,
-        operation: S3Operation,
-        operation_name: str,
-        bucket: str,
-        key: str,
-        receive: Receive,
-        headers: dict[str, str],
-        pool: BackendPool,
-        read_strategy: ReadFallbackStrategy,
-        write_strategy: WritePrimaryReplicationStrategy,
-        query_string: bytes,
-    ) -> Any:
-        """Dispatch object-level operations (key is guaranteed non-None)."""
-        match operation:
-            case S3Operation.PUT_OBJECT:
-                content_length_str = headers.get("content-length")
-                content_length = int(content_length_str) if content_length_str else None
-
-                def on_read(n: int) -> None:
-                    self._metrics.record_data_transfer(direction="in", operation=operation_name, bytes_count=n)
-
-                body = ASGIStreamReader(receive, on_read=on_read)
-
-                if headers.get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
-                    body = AWSChunkedDecoder(body)
-                    decoded_length_str = headers.get("x-amz-decoded-content-length")
-                    if decoded_length_str:
-                        content_length = int(decoded_length_str)
-
-                content_type = headers.get("content-type", "application/octet-stream")
-                return await handle_put_object(bucket, key, body, pool, write_strategy, content_type, content_length)
-            case S3Operation.COPY_OBJECT:
-                copy_source = headers.get("x-amz-copy-source", "")
-                return await handle_copy_object(bucket, key, pool, write_strategy, copy_source)
-            case S3Operation.GET_OBJECT:
-                return await handle_get_object(bucket, key, pool, read_strategy)
-            case S3Operation.DELETE_OBJECT:
-                return await handle_delete_object(bucket, key, pool, write_strategy)
-            case S3Operation.PUT_OBJECT_TAGGING:
-                body = await self._read_body(receive, operation_name)
-                return await handle_put_object_tagging(bucket, key, pool, write_strategy, body)
-            case S3Operation.GET_OBJECT_TAGGING:
-                return await handle_get_object_tagging(bucket, key, pool, read_strategy)
-            case S3Operation.DELETE_OBJECT_TAGGING:
-                return await handle_delete_object_tagging(bucket, key, pool, write_strategy)
-            case S3Operation.HEAD_OBJECT:
-                return await handle_head_object(bucket, key, pool, read_strategy)
-            case S3Operation.CREATE_MULTIPART_UPLOAD:
-                return await handle_create_multipart_upload(bucket, key, pool, write_strategy, headers)
-            case S3Operation.UPLOAD_PART:
-                content_length_str = headers.get("content-length")
-                content_length = int(content_length_str) if content_length_str else None
-
-                def on_read(n: int) -> None:
-                    self._metrics.record_data_transfer(direction="in", operation=operation_name, bytes_count=n)
-
-                body = ASGIStreamReader(receive, on_read=on_read)
-
-                if headers.get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
-                    body = AWSChunkedDecoder(body)
-                    decoded_length_str = headers.get("x-amz-decoded-content-length")
-                    if decoded_length_str:
-                        content_length = int(decoded_length_str)
-
-                return await handle_upload_part(bucket, key, body, pool, write_strategy, query_string, content_length)
-            case S3Operation.COMPLETE_MULTIPART_UPLOAD:
-                body = await self._read_body(receive, operation_name)
-                return await handle_complete_multipart_upload(bucket, key, body, pool, write_strategy, query_string)
-            case S3Operation.ABORT_MULTIPART_UPLOAD:
-                return await handle_abort_multipart_upload(bucket, key, pool, write_strategy, query_string)
-            case _:  # pragma: no cover
-                return S3ErrorResponse(
-                    error_code=S3Errors.METHOD_NOT_ALLOWED,
-                    message=f"Operation {operation} not implemented",
-                ).to_response()
-
-    async def _read_body(self, receive: Receive, operation: str = "unknown") -> bytes:
-        """Read the full request body from ASGI receive."""
-        chunks: list[bytes] = []
-        while True:
-            message = await receive()
-            body = message.get("body", b"")
-            if body:
-                chunks.append(body)
-            if not message.get("more_body", False):
-                break
-        result = b"".join(chunks)
-        self._metrics.record_data_transfer(direction="in", operation=operation, bytes_count=len(result))
-        return result
 
 
 def create_app() -> S3ProxyApp:
