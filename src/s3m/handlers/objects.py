@@ -298,8 +298,7 @@ async def handle_copy_object(
     try:
         source = copy_source.lstrip("/")
         if not source:
-            msg = "Empty x-amz-copy-source"
-            raise ValueError(msg)  # noqa: TRY301
+            raise ValueError("Empty x-amz-copy-source")  # noqa: TRY301
 
         params = {"Bucket": bucket, "Key": key, "CopySource": source}
 

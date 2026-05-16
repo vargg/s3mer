@@ -13,6 +13,7 @@ from s3m.common.metrics import (
     health_handler,
     metrics_handler,
 )
+from s3m.common.responses import Receive, Scope, Send
 from s3m.common.streaming import ASGIStreamReader, AWSChunkedDecoder
 from s3m.config.settings import load_settings
 from s3m.handlers.buckets import (
@@ -103,7 +104,7 @@ class S3ProxyApp:
 
         log.info("s3m proxy stopped")
 
-    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """ASGI entry point."""
         if scope["type"] == "lifespan":
             await self._handle_lifespan(scope, receive, send)
@@ -114,8 +115,9 @@ class S3ProxyApp:
 
         await self._handle_http(scope, receive, send)
 
-    async def _handle_lifespan(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
+    async def _handle_lifespan(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Handle ASGI lifespan events (startup/shutdown)."""
+        del scope
         while True:
             message = await receive()
             if message["type"] == "lifespan.startup":
@@ -131,7 +133,7 @@ class S3ProxyApp:
                 await send({"type": "lifespan.shutdown.complete"})
                 return
 
-    async def _handle_http(self, scope: dict, receive: Any, send: Any) -> None:
+    async def _handle_http(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Handle an HTTP request by classifying and dispatching it."""
         method = scope["method"]
         path = scope["path"]
@@ -204,7 +206,7 @@ class S3ProxyApp:
         operation: S3Operation,
         bucket: str,
         key: str | None,
-        receive: Any,
+        receive: Receive,
         headers: dict[str, str],
         query_string: bytes,
     ) -> Any:
@@ -285,7 +287,7 @@ class S3ProxyApp:
         operation: S3Operation,
         bucket: str,
         key: str,
-        receive: Any,
+        receive: Receive,
         headers: dict[str, str],
         pool: BackendPool,
         read_strategy: ReadFallbackStrategy,
@@ -349,7 +351,7 @@ class S3ProxyApp:
                 ).to_response()
 
 
-async def _read_body(receive: Any) -> bytes:
+async def _read_body(receive: Receive) -> bytes:
     """Read the full request body from ASGI receive."""
     chunks: list[bytes] = []
     while True:

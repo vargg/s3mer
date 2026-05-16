@@ -14,7 +14,7 @@ DEFAULT_CHUNK_SIZE = 65_536
 
 
 async def stream_s3_body(
-    s3_response: dict,
+    s3_response: dict[str, Any],
     chunk_size: int = DEFAULT_CHUNK_SIZE,
 ) -> AsyncGenerator[bytes, None]:
     """

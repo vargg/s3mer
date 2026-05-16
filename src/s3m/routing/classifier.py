@@ -80,8 +80,7 @@ def classify_request(  # noqa: PLR0912
             elif "uploadId" in query:
                 operation = S3Operation.COMPLETE_MULTIPART_UPLOAD
             else:
-                msg = f"Cannot classify POST request without uploads or uploadId: {path}"
-                raise ValueError(msg)
+                raise ValueError(f"Cannot classify POST request without uploads or uploadId: {path}")
 
         elif base_operation == S3Operation.PUT_OBJECT:
             if "tagging" in query:

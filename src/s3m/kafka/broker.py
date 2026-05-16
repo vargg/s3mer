@@ -12,6 +12,4 @@ def create_broker(config: KafkaConfig) -> KafkaBroker:
     The broker is shared between the proxy (publisher only)
     and the worker (subscriber).
     """
-    return KafkaBroker(
-        bootstrap_servers=config.bootstrap_servers,
-    )
+    return KafkaBroker(bootstrap_servers=config.bootstrap_servers)

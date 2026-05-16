@@ -3,8 +3,14 @@
 These are standalone — no framework dependency.
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable, MutableMapping
 from typing import Any
+
+# ASGI Type Aliases
+Scope = MutableMapping[str, Any]
+Message = MutableMapping[str, Any]
+Receive = Callable[[], Awaitable[Message]]
+Send = Callable[[Message], Awaitable[None]]
 
 
 class ASGIResponse:
@@ -22,8 +28,9 @@ class ASGIResponse:
         self.media_type = media_type
         self.extra_headers = headers or {}
 
-    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
-        # Check if Content-Length is provided explicitly in headers
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        del scope
+        del receive
         extra_lower = {k.lower(): v for k, v in self.extra_headers.items()}
         headers: list[tuple[bytes, bytes]] = []
 
@@ -66,7 +73,9 @@ class ASGIStreamingResponse:
         self.media_type = media_type
         self.extra_headers = headers or {}
 
-    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:  # noqa: ARG002
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        del scope
+        del receive
         extra_lower = {k.lower(): v for k, v in self.extra_headers.items()}
         resp_headers: list[tuple[bytes, bytes]] = []
 

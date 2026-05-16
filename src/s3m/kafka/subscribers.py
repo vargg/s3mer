@@ -13,6 +13,7 @@ from s3m.routing.operations import S3Operation
 logger = get_logger(__name__)
 
 MAX_RETRIES = 3
+RETRY_DELAY = 1
 
 
 def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> None:
@@ -80,7 +81,7 @@ def register_subscribers(broker: KafkaBroker, topic: str, pool: BackendPool) -> 
             )
             await broker.publish(message.model_dump_json(), topic="s3m.replication.dlq")
         else:
-            await asyncio.sleep(1)
+            await asyncio.sleep(RETRY_DELAY)
             await broker.publish(message.model_dump_json(), topic=topic)
 
 

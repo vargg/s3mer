@@ -1,11 +1,9 @@
 """Prometheus metrics registry and ASGI handler."""
 
-from typing import Any
-
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from prometheus_client.utils import INF
 
-from s3m.common.responses import ASGIResponse
+from s3m.common.responses import ASGIResponse, Receive, Scope, Send
 
 HTTP_REQUESTS_TOTAL = Counter(
     "s3m_http_requests_total",
@@ -21,7 +19,7 @@ HTTP_REQUEST_DURATION_SECONDS = Histogram(
 )
 
 
-async def metrics_handler(scope: dict, receive: Any, send: Any) -> None:
+async def metrics_handler(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI handler for /metrics endpoint."""
     data = generate_latest()
     response = ASGIResponse(
@@ -32,7 +30,7 @@ async def metrics_handler(scope: dict, receive: Any, send: Any) -> None:
     await response(scope, receive, send)
 
 
-async def health_handler(scope: dict, receive: Any, send: Any) -> None:
+async def health_handler(scope: Scope, receive: Receive, send: Send) -> None:
     """ASGI handler for /health endpoint."""
     response = ASGIResponse(
         content=b'{"status":"ok"}',
