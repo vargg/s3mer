@@ -64,6 +64,8 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         """Prioritize environment variables over YAML file."""
+        del dotenv_settings
+        del file_secret_settings
         return (
             init_settings,
             env_settings,

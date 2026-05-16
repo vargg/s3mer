@@ -1,11 +1,11 @@
-
 import time
 import urllib.request
 import uuid
+
 import pytest
-from botocore.exceptions import ClientError
 
 pytestmark = pytest.mark.e2e
+
 
 def test_health_endpoint(s3_config):
     """Verify health endpoint."""
@@ -14,12 +14,14 @@ def test_health_endpoint(s3_config):
         assert response.status == 200
         assert response.read().decode("utf-8") == '{"status":"ok"}'
 
+
 def test_metrics_endpoint(s3_config):
     """Verify metrics endpoint."""
     url = f"{s3_config['endpoint_url']}/metrics"
     with urllib.request.urlopen(url, timeout=5) as response:
         assert response.status == 200
         assert "s3m_http_requests_total" in response.read().decode("utf-8")
+
 
 def test_worker_replication(s3_proxy, s3_secondary):
     """Verify object is replicated to secondary backend."""
@@ -47,6 +49,7 @@ def test_worker_replication(s3_proxy, s3_secondary):
     s3_proxy.delete_object(Bucket=bucket, Key=key)
     s3_proxy.delete_bucket(Bucket=bucket)
 
+
 def test_multipart_replication(s3_proxy, s3_secondary):
     """Verify fully assembled multipart object is replicated."""
     bucket = f"e2e-mp-repl-{uuid.uuid4().hex[:8]}"
@@ -67,7 +70,7 @@ def test_multipart_replication(s3_proxy, s3_secondary):
         Bucket=bucket,
         Key=key,
         UploadId=upload_id,
-        MultipartUpload={"Parts": [{"PartNumber": 1, "ETag": p1["ETag"]}, {"PartNumber": 2, "ETag": p2["ETag"]}]}
+        MultipartUpload={"Parts": [{"PartNumber": 1, "ETag": p1["ETag"]}, {"PartNumber": 2, "ETag": p2["ETag"]}]},
     )
 
     # Wait for replication of the full object

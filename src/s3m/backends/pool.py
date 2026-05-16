@@ -60,6 +60,16 @@ class BackendPool:
         """Get all non-primary backends."""
         return [c for c in self._clients.values() if not c.is_primary]
 
+    def get_write_candidates(self) -> list[S3BackendClient]:
+        """
+        Get all backends available for writing, in order of preference.
+        Primary first, then secondaries sorted by priority.
+        """
+        candidates = [self.primary]
+        secondaries = sorted(self.get_secondaries(), key=lambda c: c.priority)
+        candidates.extend(secondaries)
+        return candidates
+
     def all_by_priority(self) -> list[S3BackendClient]:
         """Get all backends sorted by read priority (lowest first)."""
         return sorted(self._clients.values(), key=lambda c: c.priority)

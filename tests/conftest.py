@@ -1,8 +1,9 @@
-
 import os
+
 import boto3
 import pytest
 from botocore.client import Config
+
 
 @pytest.fixture(scope="session")
 def s3_config():
@@ -14,6 +15,7 @@ def s3_config():
         "secret_key": os.environ.get("S3M_SECRET_KEY", "minioadmin"),
         "region": os.environ.get("S3M_REGION", "us-east-1"),
     }
+
 
 @pytest.fixture(scope="session")
 def s3_proxy(s3_config):
@@ -27,6 +29,7 @@ def s3_proxy(s3_config):
         region_name=s3_config["region"],
     )
 
+
 @pytest.fixture(scope="session")
 def s3_secondary(s3_config):
     """Boto3 client for the secondary backend (direct access)."""
@@ -38,6 +41,7 @@ def s3_secondary(s3_config):
         config=Config(signature_version="s3v4"),
         region_name=s3_config["region"],
     )
+
 
 @pytest.fixture(scope="session")
 def s3_resource(s3_config):

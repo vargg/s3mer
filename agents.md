@@ -52,7 +52,32 @@ S3M is a high-performance, asynchronous S3 proxy designed to provide consistent 
 
 ## Tech Stack
 - **Language**: Python 3.12+
-- **Frameworks**: ASGI, FastStream (Kafka)
+- **Frameworks**: ASGI (Uvicorn), FastStream (Kafka)
 - **S3 Client**: aiobotocore
-- **Infrastructure**: Kafka, S3-compatible storage (e.g., MinIO, AWS S3)
+- **Infrastructure**: Kafka, S3-compatible storage (e.g., MinIO)
 - **Quality**: Strict Type Checking (`ty`), Linting (`ruff`), and Pytest.
+
+## Quality Assurance & Testing
+
+### 1. Linting and Formatting
+We use **Ruff** for extremely fast linting and formatting, and **ty** for strict type checking.
+
+- **Check Linting**: `uv run ruff check`
+- **Auto-fix Linting**: `uv run ruff check --fix`
+- **Format Code**: `uv run ruff format`
+- **Type Checking**: `uv run ty check src` (also check `tests`)
+
+### 2. Unit Testing
+Unit tests focus on individual components like handlers, strategies, and streaming utilities. They use mocks for external dependencies (S3 backends, Kafka).
+
+- **Run Unit Tests**: `uv run pytest tests/unit`
+- **Coverage**: `uv run pytest --cov=src tests/unit`
+
+### 3. End-to-End (E2E) Testing
+E2E tests verify the full integration between the S3 Proxy, Kafka, and multiple MinIO backends. They run in a containerized environment to ensure consistency.
+
+- **Run E2E Suite**:
+  ```bash
+  docker compose -f docker-compose-test.yaml up --build --exit-code-from pytest-runner
+  ```
+- **Scenario Testing**: The E2E suite covers bucket lifecycles, multipart uploads, and eventually-consistent replication to secondary backends.

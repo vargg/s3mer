@@ -25,6 +25,8 @@ def _make_mock_pool(clients: list[MagicMock]) -> MagicMock:
     pool.all_by_priority.return_value = sorted(clients, key=lambda c: c.priority)
     pool.primary = next((c for c in clients if c.is_primary), clients[0])
     pool.get_secondaries.return_value = [c for c in clients if not c.is_primary]
+    pool.get_write_candidates.return_value = [pool.primary, *pool.get_secondaries.return_value]
+    pool.all_clients = clients
     return pool
 
 

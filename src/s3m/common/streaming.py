@@ -1,7 +1,12 @@
 """Async streaming utilities for proxying S3 object bodies."""
 
+import tempfile
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any, Self
+
+from s3m.common.logging import get_logger
+
+logger = get_logger(__name__)
 
 # Default chunk size: 64 KB — good balance between throughput and memory
 DEFAULT_CHUNK_SIZE = 65_536
@@ -26,6 +31,70 @@ async def stream_s3_body(
             yield chunk
     finally:
         stream.close()
+
+
+class BufferedStreamReader(AsyncIterator[bytes]):
+    """
+    Wraps an async stream and buffers all read data to a temporary file.
+    Allows the stream to be 'replayed' once by calling seek_to_start().
+    """
+
+    def __init__(
+        self,
+        reader: AsyncIterator[bytes],
+        max_memory_size: int = 10 * 1024 * 1024,  # 10 MB
+    ) -> None:
+        self.reader = reader
+        self._tmp_file = tempfile.SpooledTemporaryFile(max_size=max_memory_size, mode="w+b")  # noqa: SIM115
+        self._read_from_tmp = False
+        self._eof_reached = False
+
+    def seek_to_start(self) -> None:
+        """Switch to reading from the buffer and reset position to start."""
+        if self._read_from_tmp:
+            logger.debug("Rewinding already buffered stream")
+        else:
+            logger.debug("Switching to replay mode for buffered stream")
+            self._read_from_tmp = True
+        self._tmp_file.seek(0)
+
+    async def read(self, n: int = -1) -> bytes:
+        """Read n bytes from the current source (stream or buffer)."""
+        if self._read_from_tmp:
+            # SpooledTemporaryFile.read is sync, but aiobotocore handles it
+            return self._tmp_file.read(n)
+
+        if self._eof_reached:
+            return b""
+
+        # Read from source stream
+        try:
+            # We use a fixed chunk size when reading from the underlying reader
+            # regardless of 'n', to simplify buffering.
+            chunk = await anext(self.reader)
+        except (StopAsyncIteration, GeneratorExit):
+            self._eof_reached = True
+            return b""
+        else:
+            self._tmp_file.write(chunk)
+            return chunk
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> bytes:
+        chunk = await self.read(DEFAULT_CHUNK_SIZE)
+        if not chunk:
+            raise StopAsyncIteration
+        return chunk
+
+    def close(self) -> None:
+        """Close and delete the temporary buffer."""
+        self._tmp_file.close()
+
+    def tell(self) -> int:
+        """Required for some botocore validations, though we are technically unseekable."""
+        return self._tmp_file.tell()
 
 
 class ASGIStreamReader(AsyncIterator[bytes]):
@@ -82,92 +151,81 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
 
     def __init__(self, reader: ASGIStreamReader) -> None:
         self.reader = reader
-        self._buffer = bytearray()
+        self._raw_buffer = bytearray()
+        self._decoded_buffer = bytearray()
         self._eof = False
         self._current_chunk_remaining = 0
         self._state = "READ_HEADER"  # READ_HEADER, READ_DATA, READ_CRLF
 
-    async def _fill_buffer(self, n: int) -> bool:
-        """Attempt to fill buffer with at least n bytes. Returns True if achieved, False if EOF."""
-        while len(self._buffer) < n:
+    async def _fill_raw_buffer(self, n: int) -> bool:
+        """Attempt to fill raw buffer with at least n bytes. Returns True if achieved, False if EOF."""
+        while len(self._raw_buffer) < n:
             chunk = await self.reader.read(DEFAULT_CHUNK_SIZE)
             if not chunk:
                 return False
-            self._buffer.extend(chunk)
+            self._raw_buffer.extend(chunk)
         return True
 
     async def read(self, n: int = -1) -> bytes:  # noqa: PLR0912
-        if self._eof:
-            return b""
+        if n == -1:
+            chunks = []
+            while not self._eof or self._decoded_buffer:
+                chunk = await self.read(DEFAULT_CHUNK_SIZE)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks)
 
-        result = bytearray()
-
-        while True:
-            if n != -1 and len(result) >= n:
-                break
-
+        while len(self._decoded_buffer) < n and not self._eof:
             if self._state == "READ_HEADER":
-                # Find \r\n
-                newline_idx = self._buffer.find(b"\r\n")
-                while newline_idx == -1:
-                    chunk = await self.reader.read(DEFAULT_CHUNK_SIZE)
-                    if not chunk:
-                        msg = "Unexpected EOF while reading aws-chunked header"
-                        raise ValueError(msg)
-                    self._buffer.extend(chunk)
-                    newline_idx = self._buffer.find(b"\r\n")
-
-                header_line = self._buffer[:newline_idx]
-                del self._buffer[: newline_idx + 2]
-
-                # Header looks like: 10000;chunk-signature=...
-                size_str = header_line.split(b";")[0].strip()
+                if not await self._fill_raw_buffer(1):
+                    self._eof = True
+                    break
+                pos = self._raw_buffer.find(b"\r\n")
+                if pos == -1:
+                    if not await self._fill_raw_buffer(len(self._raw_buffer) + 128):
+                        self._eof = True
+                        break
+                    continue
+                header = self._raw_buffer[:pos]
+                del self._raw_buffer[: pos + 2]
                 try:
-                    self._current_chunk_remaining = int(size_str, 16)
-                except ValueError as err:
-                    msg = f"Invalid chunk size: {size_str}"
-                    raise ValueError(msg) from err
-
+                    size_hex = header.split(b";")[0]
+                    self._current_chunk_remaining = int(size_hex, 16)
+                except (ValueError, IndexError):
+                    self._eof = True
+                    break
                 if self._current_chunk_remaining == 0:
                     self._eof = True
                     break
                 self._state = "READ_DATA"
 
             elif self._state == "READ_DATA":
-                to_read = self._current_chunk_remaining
-                if n != -1:
-                    to_read = min(to_read, n - len(result))
-
-                await self._fill_buffer(to_read)
-                actual_read = min(to_read, len(self._buffer))
-                if actual_read == 0:
-                    msg = "Unexpected EOF while reading aws-chunked data"
-                    raise ValueError(msg)
-
-                result.extend(self._buffer[:actual_read])
-                del self._buffer[:actual_read]
-                self._current_chunk_remaining -= actual_read
-
+                if not await self._fill_raw_buffer(1):
+                    self._eof = True
+                    break
+                take = min(len(self._raw_buffer), self._current_chunk_remaining)
+                self._decoded_buffer.extend(self._raw_buffer[:take])
+                del self._raw_buffer[:take]
+                self._current_chunk_remaining -= take
                 if self._current_chunk_remaining == 0:
                     self._state = "READ_CRLF"
 
             elif self._state == "READ_CRLF":
-                crlf_len = 2
-                await self._fill_buffer(crlf_len)
-                if len(self._buffer) < crlf_len or self._buffer[:crlf_len] != b"\r\n":
-                    msg = "Missing CRLF after chunk data"
-                    raise ValueError(msg)
-                del self._buffer[:crlf_len]
+                if not await self._fill_raw_buffer(2):
+                    self._eof = True
+                    break
+                del self._raw_buffer[:2]
                 self._state = "READ_HEADER"
 
-        return bytes(result)
+        result = bytes(self._decoded_buffer[:n])
+        del self._decoded_buffer[:n]
+        return result
 
     def __aiter__(self) -> Self:
-        """Make it iterable for async iteration."""
         return self
 
     async def __anext__(self) -> bytes:
-        """Async iterator protocol."""
         chunk = await self.read(DEFAULT_CHUNK_SIZE)
         if not chunk:
             raise StopAsyncIteration
