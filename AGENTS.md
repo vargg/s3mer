@@ -23,33 +23,33 @@ S3M is a high-performance, asynchronous S3 proxy designed to provide consistent 
 - Handles retries and Dead Letter Queues (DLQ) for failed replication tasks.
 - **State-Sync for Metadata**: For operations like Tagging, the worker fetches the current state from the Primary backend and applies it to Secondaries, ensuring eventual consistency.
 
+### 4. Observability & Monitoring (`src/s3m/common/metrics.py`)
+- **Metrics Tracker Architecture**: Uses a decoupled `MetricsTracker` protocol to abstract telemetry from business logic.
+- **Prometheus Integration**: Native support for Prometheus metrics including request latency, data transfer throughput, and backend health status.
+- **Internal Endpoints**: Dedicated `/.internal/metrics` and `/.internal/health` handlers for operational visibility.
+
+## Development Rules
+
+- **PEP-8 Compliance**: All code must be PEP-8 compatible. Use `ruff format` to ensure consistency.
+- **Strict Linting**: Disabling linter rules (e.g., `# noqa`) is allowed only for special cases and must be justified.
+- **Dependency Injection**: Use dependency injection for system-level services (like the Metrics Tracker) to ensure testability.
+- **Explicit Imports**: Use top-level imports. Avoid inline imports unless strictly necessary for avoiding circular dependencies.
+
 ## Supported S3 API Operations
 
 ### Bucket Operations
-- `ListBuckets`
-- `CreateBucket`
-- `DeleteBucket`
-- `HeadBucket`
-- `ListObjects` (V1 & V2)
-- `DeleteObjects` (Multi-delete)
+- `ListBuckets`, `CreateBucket`, `DeleteBucket`, `HeadBucket`
+- `ListObjects` (V1 & V2), `DeleteObjects` (Multi-delete)
 
 ### Object Operations
 - `PutObject` (Regular & `aws-chunked` streaming)
-- `GetObject`
-- `DeleteObject`
-- `HeadObject`
-- `CopyObject` (Server-side copy)
+- `GetObject`, `DeleteObject`, `HeadObject`, `CopyObject` (Server-side copy)
 
 ### Multipart Uploads
-- `CreateMultipartUpload`
-- `UploadPart`
-- `CompleteMultipartUpload`
-- `AbortMultipartUpload`
+- `CreateMultipartUpload`, `UploadPart`, `CompleteMultipartUpload`, `AbortMultipartUpload`
 
 ### Object Metadata & Tagging
-- `PutObjectTagging`
-- `GetObjectTagging`
-- `DeleteObjectTagging`
+- `PutObjectTagging`, `GetObjectTagging`, `DeleteObjectTagging`
 
 ## Tech Stack
 - **Language**: Python 3.12+
@@ -61,8 +61,6 @@ S3M is a high-performance, asynchronous S3 proxy designed to provide consistent 
 ## Quality Assurance & Testing
 
 ### 1. Automation with Makefile
-The easiest way to run quality checks is via the provided `Makefile`:
-
 - **Run All Lints**: `make lint`
 - **Run Unit Tests**: `make test-unit`
 - **Run E2E Suite**: `make test`
@@ -70,15 +68,10 @@ The easiest way to run quality checks is via the provided `Makefile`:
 
 ### 2. Linting and Formatting
 We use **Ruff** for extremely fast linting and formatting, and **ty** for strict type checking.
-
 - **Check Linting**: `uv run ruff check src tests`
 - **Format Code**: `uv run ruff format src tests`
 - **Type Checking**: `uv run ty check src tests`
 
 ### 3. Testing
 - **Unit Testing**: Local tests with mocks: `uv run pytest tests/unit`
-- **E2E Testing**: Full integration via Docker:
-  ```bash
-  docker compose -f docker-compose-test.yaml up --build --exit-code-from pytest-runner
-  ```
-- **Scenario Testing**: The E2E suite covers bucket lifecycles, multipart uploads, and eventually-consistent replication to secondary backends.
+- **E2E Testing**: Full integration via Docker: `docker compose -f docker-compose-test.yaml up --build --exit-code-from pytest-runner`
