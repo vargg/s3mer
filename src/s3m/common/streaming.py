@@ -28,19 +28,6 @@ async def stream_s3_body(
         stream.close()
 
 
-async def collect_request_body(
-    body_iterator: AsyncGenerator[bytes, None],
-) -> bytes:
-    """
-    Collect an async body stream into bytes.
-
-    Use only for small payloads (bucket creation XML, etc.).
-    For large objects, stream directly to the backend.
-    """
-    chunks: list[bytes] = [chunk async for chunk in body_iterator]
-    return b"".join(chunks)
-
-
 class ASGIStreamReader(AsyncIterator[bytes]):
     """An async stream reader that reads from the ASGI receive channel."""
 
@@ -82,7 +69,7 @@ class ASGIStreamReader(AsyncIterator[bytes]):
 
     async def __anext__(self) -> bytes:
         """Async iterator protocol."""
-        chunk = await self.read(65536)
+        chunk = await self.read(DEFAULT_CHUNK_SIZE)
         if not chunk:
             raise StopAsyncIteration
         return chunk
@@ -103,7 +90,7 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
     async def _fill_buffer(self, n: int) -> bool:
         """Attempt to fill buffer with at least n bytes. Returns True if achieved, False if EOF."""
         while len(self._buffer) < n:
-            chunk = await self.reader.read(65536)
+            chunk = await self.reader.read(DEFAULT_CHUNK_SIZE)
             if not chunk:
                 return False
             self._buffer.extend(chunk)
@@ -123,7 +110,7 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
                 # Find \r\n
                 newline_idx = self._buffer.find(b"\r\n")
                 while newline_idx == -1:
-                    chunk = await self.reader.read(65536)
+                    chunk = await self.reader.read(DEFAULT_CHUNK_SIZE)
                     if not chunk:
                         msg = "Unexpected EOF while reading aws-chunked header"
                         raise ValueError(msg)
@@ -181,7 +168,7 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
 
     async def __anext__(self) -> bytes:
         """Async iterator protocol."""
-        chunk = await self.read(65536)
+        chunk = await self.read(DEFAULT_CHUNK_SIZE)
         if not chunk:
             raise StopAsyncIteration
         return chunk

@@ -67,14 +67,15 @@ class WritePrimaryReplicationStrategy:
         # 2. Publish replication message for secondary backends
         secondaries = pool.get_secondaries()
         if secondaries:
-            # Build metadata from the primary's response
+            # Build metadata from both params and response
             metadata: dict[str, Any] = {}
-            if "ETag" in response:
-                metadata["ETag"] = response["ETag"]
-            if "ContentType" in params:
-                metadata["ContentType"] = params["ContentType"]
-            if "ContentLength" in params:
-                metadata["ContentLength"] = params["ContentLength"]
+            for key in ("ETag", "ContentType", "ContentLength"):
+                if key in response:
+                    metadata[key] = response[key]
+                elif key in params:
+                    metadata[key] = params[key]
+                # Also check common S3 response header variations if needed,
+                # but botocore usually maps them to the keys above.
 
             # If we're completing a multipart upload or copying an object,
             # the replication operation should actually be PUT_OBJECT

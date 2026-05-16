@@ -98,25 +98,40 @@ async def _replicate_operation(
     """
     match operation:
         case S3Operation.PUT_OBJECT:
-            # Read from source, write to target
+            # Read from source, stream to target
             get_response = await source.execute(
                 S3Operation.GET_OBJECT,
                 {"Bucket": message.bucket, "Key": message.key},
             )
 
-            # Read the full body for replication
-            async with get_response["Body"] as stream:
-                body = await stream.read()
-
+            # We pass the StreamingBody directly to the target execute call.
+            # aiobotocore handles the underlying async stream.
+            body = get_response["Body"]
             put_params: dict = {
                 "Bucket": message.bucket,
                 "Key": message.key,
                 "Body": body,
             }
+
+            # Preserve metadata from the message
             if "ContentType" in message.metadata:
                 put_params["ContentType"] = message.metadata["ContentType"]
 
-            await target.execute(S3Operation.PUT_OBJECT, put_params)
+            # ContentLength is mandatory for streaming PutObject.
+            # If it's missing from the message (e.g. multipart), fetch it from source.
+            content_length = message.metadata.get("ContentLength")
+            if content_length is None:
+                # HEAD object on source to get exact size
+                head_resp = await source.execute(
+                    S3Operation.HEAD_OBJECT,
+                    {"Bucket": message.bucket, "Key": message.key},
+                )
+                content_length = head_resp["ContentLength"]
+
+            put_params["ContentLength"] = int(content_length)
+
+            async with body:
+                await target.execute(S3Operation.PUT_OBJECT, put_params)
 
         case S3Operation.CREATE_BUCKET:
             await target.execute(
