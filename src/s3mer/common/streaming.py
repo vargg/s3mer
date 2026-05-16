@@ -65,6 +65,19 @@ class BufferedStreamReader(AsyncIterator[bytes]):
             self._read_from_tmp = True
         self._tmp_file.seek(0)
 
+    def seek(self, offset: int, whence: int = 0) -> int:
+        """
+        Required by botocore to reset the stream during retries/fallbacks.
+        We support seeking within the already-buffered data.
+        """
+        if offset == 0 and whence == 0:
+            self.seek_to_start()
+            return 0
+
+        # Delegate to the underlying spool file for other seek types.
+        # Note: Seeking forward past the buffer is not supported until EOF.
+        return self._tmp_file.seek(offset, whence)
+
     async def read(self, n: int = -1) -> bytes:
         """Read n bytes from the current source (stream or buffer)."""
         if self._read_from_tmp:
@@ -94,6 +107,10 @@ class BufferedStreamReader(AsyncIterator[bytes]):
         if not chunk:
             raise StopAsyncIteration
         return chunk
+
+    def seekable(self) -> bool:
+        """Explicitly signal that this stream supports seeking (required by some IO wrappers)."""
+        return True
 
     def close(self) -> None:
         """Close and delete the temporary buffer."""
