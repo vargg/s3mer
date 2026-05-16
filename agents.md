@@ -9,13 +9,14 @@ S3M is a high-performance, asynchronous S3 proxy designed to provide consistent 
 - **Memory-Efficient Streaming**: Implements on-the-fly streaming for `PUT` and `GET` operations. Large objects are never buffered in memory.
 - **AWS Chunked Decoding**: Custom `AWSChunkedDecoder` handles `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` (SigV4 chunked) unwrapping without memory overhead.
 - **Request Classification**: Advanced routing that differentiates between Bucket, Object, Multipart, and Metadata operations based on URL patterns and query parameters.
+- **Replayable Fallbacks**: Uses `BufferedStreamReader` to allow replaying request bodies during backend failover without memory-intensive buffering of entire large objects.
 
 ### 2. Replication Strategy (`src/s3m/strategies/`)
 - **Primary-Synchronous**: Writes are first committed to a "Primary" backend.
 - **Secondary-Asynchronous**: Upon success, a message is published to Kafka for background replication to "Secondary" backends.
 - **Zero-Touch Replication**: Cleverly reuses existing S3 operations to avoid complex worker logic. For example:
     - **CopyObject**: Replicated as a `PUT_OBJECT` where the worker reads from Primary and writes to Secondary.
-    - **DeleteObjects (Multi-delete)**: Intercepted and fanned out into individual `DELETE_OBJECT` messages.
+    - **DeleteObjects (Multi-delete)**: Strategy-managed fan-out into individual `DELETE_OBJECT` messages, ensuring atomic consistency across all backends even during fallbacks.
 
 ### 3. Kafka Replication Worker (`src/s3m/worker/`)
 - Uses **FastStream** for robust Kafka message processing.
@@ -59,24 +60,24 @@ S3M is a high-performance, asynchronous S3 proxy designed to provide consistent 
 
 ## Quality Assurance & Testing
 
-### 1. Linting and Formatting
+### 1. Automation with Makefile
+The easiest way to run quality checks is via the provided `Makefile`:
+
+- **Run All Lints**: `make lint`
+- **Run Unit Tests**: `make test-unit`
+- **Run E2E Suite**: `make test`
+- **Clean Environment**: `make clean`
+
+### 2. Linting and Formatting
 We use **Ruff** for extremely fast linting and formatting, and **ty** for strict type checking.
 
-- **Check Linting**: `uv run ruff check`
-- **Auto-fix Linting**: `uv run ruff check --fix`
-- **Format Code**: `uv run ruff format`
-- **Type Checking**: `uv run ty check src` (also check `tests`)
+- **Check Linting**: `uv run ruff check src tests`
+- **Format Code**: `uv run ruff format src tests`
+- **Type Checking**: `uv run ty check src tests`
 
-### 2. Unit Testing
-Unit tests focus on individual components like handlers, strategies, and streaming utilities. They use mocks for external dependencies (S3 backends, Kafka).
-
-- **Run Unit Tests**: `uv run pytest tests/unit`
-- **Coverage**: `uv run pytest --cov=src tests/unit`
-
-### 3. End-to-End (E2E) Testing
-E2E tests verify the full integration between the S3 Proxy, Kafka, and multiple MinIO backends. They run in a containerized environment to ensure consistency.
-
-- **Run E2E Suite**:
+### 3. Testing
+- **Unit Testing**: Local tests with mocks: `uv run pytest tests/unit`
+- **E2E Testing**: Full integration via Docker:
   ```bash
   docker compose -f docker-compose-test.yaml up --build --exit-code-from pytest-runner
   ```

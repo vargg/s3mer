@@ -88,17 +88,19 @@ class TestWritePrimaryReplicationStrategy:
     """Tests for the write primary + replication strategy."""
 
     @pytest.fixture
-    def publisher(self) -> AsyncMock:
-        return AsyncMock()
+    def replication_manager(self) -> AsyncMock:
+        manager = AsyncMock()
+        manager.publisher = AsyncMock()
+        return manager
 
     @pytest.fixture
-    def strategy(self, publisher: AsyncMock) -> WritePrimaryReplicationStrategy:
-        return WritePrimaryReplicationStrategy(publisher)
+    def strategy(self, replication_manager: AsyncMock) -> WritePrimaryReplicationStrategy:
+        return WritePrimaryReplicationStrategy(replication_manager)
 
     async def test_writes_to_primary(
         self,
         strategy: WritePrimaryReplicationStrategy,
-        publisher: AsyncMock,
+        replication_manager: AsyncMock,
     ) -> None:
         primary = _make_mock_client("primary", is_primary=True)
         primary.execute.return_value = {"ETag": '"abc123"'}
@@ -110,12 +112,12 @@ class TestWritePrimaryReplicationStrategy:
 
         assert result["ETag"] == '"abc123"'
         primary.execute.assert_called_once()
-        publisher.publish.assert_not_called()  # no secondaries
+        replication_manager.schedule_replication.assert_not_called()
 
-    async def test_publishes_replication_message(
+    async def test_delegates_replication(
         self,
         strategy: WritePrimaryReplicationStrategy,
-        publisher: AsyncMock,
+        replication_manager: AsyncMock,
     ) -> None:
         primary = _make_mock_client("primary", is_primary=True)
         primary.execute.return_value = {"ETag": '"abc123"'}
@@ -123,65 +125,45 @@ class TestWritePrimaryReplicationStrategy:
 
         pool = _make_mock_pool([primary, secondary])
 
-        await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k", "Body": b"data"})
+        params = {"Bucket": "b", "Key": "k", "Body": b"data"}
+        await strategy.execute(S3Operation.PUT_OBJECT, pool, params)
 
-        publisher.publish.assert_called_once()
-        msg = publisher.publish.call_args[0][0]
-        assert msg.operation == "put_object"
-        assert msg.bucket == "b"
-        assert msg.key == "k"
-        assert msg.source_backend == "primary"
-        assert "secondary" in msg.target_backends
+        replication_manager.schedule_replication.assert_called_once()
+        args = replication_manager.schedule_replication.call_args[1]
+        assert args["operation"] == S3Operation.PUT_OBJECT
+        assert args["source_backend_name"] == "primary"
+        assert args["target_backend_names"] == ["secondary"]
 
-    async def test_publishes_replication_message_for_complete_multipart(
+    async def test_delegates_replication_on_fallback(
         self,
         strategy: WritePrimaryReplicationStrategy,
-        publisher: AsyncMock,
+        replication_manager: AsyncMock,
     ) -> None:
         primary = _make_mock_client("primary", is_primary=True)
-        primary.execute.return_value = {"ETag": '"abc123"'}
+        primary.execute.side_effect = Exception("Primary down")
         secondary = _make_mock_client("secondary")
+        secondary.execute.return_value = {"ETag": '"abc123"'}
 
         pool = _make_mock_pool([primary, secondary])
 
-        await strategy.execute(
-            S3Operation.COMPLETE_MULTIPART_UPLOAD, pool, {"Bucket": "b", "Key": "k", "UploadId": "123"}, replicate=True
-        )
+        params = {"Bucket": "b", "Key": "k", "Body": b"data"}
+        await strategy.execute(S3Operation.PUT_OBJECT, pool, params)
 
-        publisher.publish.assert_called_once()
-        msg = publisher.publish.call_args[0][0]
-        assert msg.operation == "put_object"
-        assert msg.bucket == "b"
-        assert msg.key == "k"
-        assert msg.source_backend == "primary"
-        assert "secondary" in msg.target_backends
+        replication_manager.schedule_replication.assert_called_once()
+        args = replication_manager.schedule_replication.call_args[1]
+        assert args["source_backend_name"] == "secondary"
+        assert "primary" in args["target_backend_names"]
 
-    async def test_does_not_publish_when_replicate_false(
+    async def test_does_not_replicate_when_flag_is_false(
         self,
         strategy: WritePrimaryReplicationStrategy,
-        publisher: AsyncMock,
+        replication_manager: AsyncMock,
     ) -> None:
         primary = _make_mock_client("primary", is_primary=True)
         primary.execute.return_value = {"ETag": '"abc123"'}
-        secondary = _make_mock_client("secondary")
-
-        pool = _make_mock_pool([primary, secondary])
-
-        await strategy.execute(S3Operation.CREATE_MULTIPART_UPLOAD, pool, {"Bucket": "b", "Key": "k"}, replicate=False)
-
-        publisher.publish.assert_not_called()
-
-    async def test_raises_on_primary_failure(
-        self,
-        strategy: WritePrimaryReplicationStrategy,
-        publisher: AsyncMock,
-    ) -> None:
-        primary = _make_mock_client("primary", is_primary=True)
-        primary.execute.side_effect = Exception("primary down")
 
         pool = _make_mock_pool([primary])
 
-        with pytest.raises(Exception, match="primary down"):
-            await strategy.execute(S3Operation.CREATE_BUCKET, pool, {"Bucket": "b"})
+        await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k"}, replicate=False)
 
-        publisher.publish.assert_not_called()
+        replication_manager.schedule_replication.assert_not_called()

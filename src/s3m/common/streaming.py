@@ -2,6 +2,7 @@
 
 import tempfile
 from collections.abc import AsyncGenerator, AsyncIterator
+from enum import Enum, auto
 from typing import Any, Self
 
 from s3m.common.logging import get_logger
@@ -144,6 +145,14 @@ class ASGIStreamReader(AsyncIterator[bytes]):
         return chunk
 
 
+class DecoderState(Enum):
+    """Internal states for the aws-chunked decoder."""
+
+    READ_HEADER = auto()
+    READ_DATA = auto()
+    READ_CRLF = auto()
+
+
 class AWSChunkedDecoder(AsyncIterator[bytes]):
     """
     Decodes STREAMING-AWS4-HMAC-SHA256-PAYLOAD (aws-chunked) streams on the fly.
@@ -155,7 +164,7 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
         self._decoded_buffer = bytearray()
         self._eof = False
         self._current_chunk_remaining = 0
-        self._state = "READ_HEADER"  # READ_HEADER, READ_DATA, READ_CRLF
+        self._state = DecoderState.READ_HEADER
 
     async def _fill_raw_buffer(self, n: int) -> bool:
         """Attempt to fill raw buffer with at least n bytes. Returns True if achieved, False if EOF."""
@@ -166,7 +175,51 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
             self._raw_buffer.extend(chunk)
         return True
 
-    async def read(self, n: int = -1) -> bytes:  # noqa: PLR0912
+    async def _handle_read_header(self) -> bool:
+        """Handle the READ_HEADER state. Returns False on EOF/error."""
+        if not await self._fill_raw_buffer(1):
+            return False
+        pos = self._raw_buffer.find(b"\r\n")
+        if pos == -1:
+            # Need more data for header
+            return await self._fill_raw_buffer(len(self._raw_buffer) + 128)
+
+        header = self._raw_buffer[:pos]
+        del self._raw_buffer[: pos + 2]
+        try:
+            size_hex = header.split(b";")[0]
+            self._current_chunk_remaining = int(size_hex, 16)
+        except (ValueError, IndexError):
+            return False
+
+        if self._current_chunk_remaining == 0:
+            # End of stream (trailing header might follow but we skip for now)
+            return False
+
+        self._state = DecoderState.READ_DATA
+        return True
+
+    async def _handle_read_data(self) -> bool:
+        """Handle the READ_DATA state. Returns False on EOF."""
+        if not await self._fill_raw_buffer(1):
+            return False
+        take = min(len(self._raw_buffer), self._current_chunk_remaining)
+        self._decoded_buffer.extend(self._raw_buffer[:take])
+        del self._raw_buffer[:take]
+        self._current_chunk_remaining -= take
+        if self._current_chunk_remaining == 0:
+            self._state = DecoderState.READ_CRLF
+        return True
+
+    async def _handle_read_crlf(self) -> bool:
+        """Handle the READ_CRLF state (chunk delimiter). Returns False on EOF."""
+        if not await self._fill_raw_buffer(2):
+            return False
+        del self._raw_buffer[:2]
+        self._state = DecoderState.READ_HEADER
+        return True
+
+    async def read(self, n: int = -1) -> bytes:
         if n == -1:
             chunks = []
             while not self._eof or self._decoded_buffer:
@@ -177,46 +230,16 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
             return b"".join(chunks)
 
         while len(self._decoded_buffer) < n and not self._eof:
-            if self._state == "READ_HEADER":
-                if not await self._fill_raw_buffer(1):
-                    self._eof = True
-                    break
-                pos = self._raw_buffer.find(b"\r\n")
-                if pos == -1:
-                    if not await self._fill_raw_buffer(len(self._raw_buffer) + 128):
+            match self._state:
+                case DecoderState.READ_HEADER:
+                    if not await self._handle_read_header():
                         self._eof = True
-                        break
-                    continue
-                header = self._raw_buffer[:pos]
-                del self._raw_buffer[: pos + 2]
-                try:
-                    size_hex = header.split(b";")[0]
-                    self._current_chunk_remaining = int(size_hex, 16)
-                except (ValueError, IndexError):
-                    self._eof = True
-                    break
-                if self._current_chunk_remaining == 0:
-                    self._eof = True
-                    break
-                self._state = "READ_DATA"
-
-            elif self._state == "READ_DATA":
-                if not await self._fill_raw_buffer(1):
-                    self._eof = True
-                    break
-                take = min(len(self._raw_buffer), self._current_chunk_remaining)
-                self._decoded_buffer.extend(self._raw_buffer[:take])
-                del self._raw_buffer[:take]
-                self._current_chunk_remaining -= take
-                if self._current_chunk_remaining == 0:
-                    self._state = "READ_CRLF"
-
-            elif self._state == "READ_CRLF":
-                if not await self._fill_raw_buffer(2):
-                    self._eof = True
-                    break
-                del self._raw_buffer[:2]
-                self._state = "READ_HEADER"
+                case DecoderState.READ_DATA:
+                    if not await self._handle_read_data():
+                        self._eof = True
+                case DecoderState.READ_CRLF:
+                    if not await self._handle_read_crlf():
+                        self._eof = True
 
         result = bytes(self._decoded_buffer[:n])
         del self._decoded_buffer[:n]

@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 from s3m.backends.pool import BackendPool
 from s3m.common.logging import get_logger
 from s3m.common.streaming import BufferedStreamReader
-from s3m.kafka.messages import ReplicationMessage
+from s3m.kafka.manager import ReplicationManager
 from s3m.kafka.publisher import ReplicationPublisher
 from s3m.routing.operations import S3Operation
 
@@ -23,15 +23,15 @@ class WritePrimaryReplicationStrategy:
     to secondary backends.
     """
 
-    def __init__(self, publisher: ReplicationPublisher) -> None:
-        self._publisher = publisher
+    def __init__(self, replication_manager: ReplicationManager) -> None:
+        self._replication_manager = replication_manager
 
     @property
     def publisher(self) -> ReplicationPublisher:
-        """Get the replication publisher."""
-        return self._publisher
+        """Get the underlying replication publisher."""
+        return self._replication_manager.publisher
 
-    async def execute(  # noqa: PLR0912
+    async def execute(
         self,
         operation: S3Operation,
         pool: BackendPool,
@@ -92,45 +92,16 @@ class WritePrimaryReplicationStrategy:
         if isinstance(params.get("Body"), BufferedStreamReader):
             params["Body"].close()
 
-        if not replicate:
-            return response
-
-        # 2. Publish replication message for ALL OTHER backends
-        # If we wrote to a secondary, we MUST replicate back to primary.
-        targets = [b for b in pool.all_clients if b.name != successful_backend.name]
-
-        if targets:
-            # Build metadata from both params and response
-            metadata: dict[str, Any] = {}
-            for key in ("ETag", "ContentType", "ContentLength"):
-                if key in response:
-                    metadata[key] = response[key]
-                elif key in params:
-                    metadata[key] = params[key]
-
-            # If we're completing a multipart upload or copying an object,
-            # the replication operation should actually be PUT_OBJECT
-            # so the worker can just read the fully assembled/copied object.
-            rep_op = (
-                S3Operation.PUT_OBJECT.value
-                if operation in (S3Operation.COMPLETE_MULTIPART_UPLOAD, S3Operation.COPY_OBJECT)
-                else operation.value
-            )
-
-            message = ReplicationMessage(
-                operation=rep_op,
-                bucket=params.get("Bucket", ""),
-                key=params.get("Key"),
-                source_backend=successful_backend.name,
-                target_backends=[b.name for b in targets],
-                metadata=metadata,
-            )
-            await self._publisher.publish(message)
-            logger.info(
-                "Replication message published for fallback",
-                source=successful_backend.name,
-                targets=[b.name for b in targets],
-                message_id=message.message_id,
-            )
+        if replicate:
+            # 2. Replicate to ALL OTHER backends
+            targets = [b for b in pool.all_clients if b.name != successful_backend.name]
+            if targets:
+                await self._replication_manager.schedule_replication(
+                    operation=operation,
+                    params=params,
+                    response=response,
+                    source_backend_name=successful_backend.name,
+                    target_backend_names=[b.name for b in targets],
+                )
 
         return response

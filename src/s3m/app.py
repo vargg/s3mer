@@ -39,6 +39,7 @@ from s3m.handlers.objects import (
     handle_upload_part,
 )
 from s3m.kafka.broker import create_broker
+from s3m.kafka.manager import ReplicationManager
 from s3m.kafka.publisher import ReplicationPublisher
 from s3m.routing.classifier import classify_request
 from s3m.routing.operations import S3Operation
@@ -81,10 +82,11 @@ class S3ProxyApp:
         self._broker = create_broker(settings.kafka)
         await self._broker.start()
         publisher = ReplicationPublisher(self._broker, settings.kafka.topic)
+        replication_manager = ReplicationManager(publisher)
 
         # Strategies
         self._read_strategy = ReadFallbackStrategy()
-        self._write_strategy = WritePrimaryReplicationStrategy(publisher)
+        self._write_strategy = WritePrimaryReplicationStrategy(replication_manager)
 
         self._started = True
         log.info("s3m proxy ready")

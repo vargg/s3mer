@@ -8,7 +8,6 @@ from s3m.common.errors import S3ErrorResponse
 from s3m.common.logging import get_logger
 from s3m.common.responses import ASGIResponse
 from s3m.common.xml import delete_result_xml, list_buckets_xml, list_objects_v2_xml, list_objects_xml
-from s3m.kafka.messages import ReplicationMessage
 from s3m.routing.operations import S3Operation
 from s3m.strategies.read import ReadFallbackStrategy
 from s3m.strategies.write import WritePrimaryReplicationStrategy
@@ -187,22 +186,7 @@ async def handle_delete_objects(
 
         params = {"Bucket": bucket, "Delete": {"Objects": objects_to_delete}}
 
-        response = await write_strategy.execute(S3Operation.DELETE_OBJECTS, pool, params, replicate=False)
-
-        # Fan-out replication
-        if write_strategy.publisher:
-            target_backends = [b.name for b in pool.get_secondaries()]
-            if target_backends:
-                for obj in objects_to_delete:
-                    key = obj["Key"]
-                    msg = ReplicationMessage(
-                        operation=S3Operation.DELETE_OBJECT.value,
-                        bucket=bucket,
-                        key=key,
-                        source_backend=pool.primary.name,
-                        target_backends=target_backends,
-                    )
-                    await write_strategy.publisher.publish(msg)
+        response = await write_strategy.execute(S3Operation.DELETE_OBJECTS, pool, params)
 
         deleted = [d.get("Key", "") for d in response.get("Deleted", [])]
         errors = response.get("Errors", [])
