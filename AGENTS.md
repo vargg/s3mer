@@ -5,35 +5,47 @@ S3MER is a high-performance, asynchronous S3 proxy designed to provide consisten
 ## Core Architecture
 
 ### 1. S3 Proxy (`src/s3mer/app.py`)
-- **Async/ASGI**: Built using Python's ASGI spec for high concurrency.
+- **Async/ASGI**: Built as a pure ASGI application for maximum concurrency and low-overhead HTTP handling.
+- **Path-style Routing**: Currently supports path-style S3 URLs (`/bucket/key`).
+- **Request Classification**: Advanced routing (`routing/classifier.py`) that differentiates between Bucket, Object, Multipart, and Metadata operations by inspecting HTTP methods, URL patterns, and query parameters (e.g., `?tagging`, `?uploads`).
 - **Memory-Efficient Streaming**: Implements on-the-fly streaming for `PUT` and `GET` operations. Large objects are never buffered in memory.
 - **AWS Chunked Decoding**: Custom `AWSChunkedDecoder` handles `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` (SigV4 chunked) unwrapping without memory overhead.
-- **Request Classification**: Advanced routing that differentiates between Bucket, Object, Multipart, and Metadata operations based on URL patterns and query parameters.
-- **Replayable Fallbacks**: Uses `BufferedStreamReader` to allow replaying request bodies during backend failover without memory-intensive buffering of entire large objects.
 
 ### 2. Replication Strategy (`src/s3mer/strategies/`)
 - **Primary-Synchronous**: Writes are first committed to a "Primary" backend.
 - **Secondary-Asynchronous**: Upon success, a message is published to Kafka for background replication to "Secondary" backends.
-- **Zero-Touch Replication**: Cleverly reuses existing S3 operations to avoid complex worker logic. For example:
-    - **CopyObject**: Replicated as a `PUT_OBJECT` where the worker reads from Primary and writes to Secondary.
-    - **DeleteObjects (Multi-delete)**: Strategy-managed fan-out into individual `DELETE_OBJECT` messages, ensuring atomic consistency across all backends even during fallbacks.
+- **Replayable Fallbacks**: The `WritePrimaryReplicationStrategy` uses `BufferedStreamReader` to buffer the request body to a temporary file, allowing the stream to be "replayed" if the Primary backend fails and a fallback attempt is needed.
+- **Zero-Touch Replication**: Cleverly reuses existing S3 operations to avoid complex worker logic:
+    - **Mapping**: `CompleteMultipartUpload` and `CopyObject` are replicated as a standard `PUT_OBJECT` where the worker reads from Primary and writes to Secondary.
+    - **Fan-out**: `DeleteObjects` (Multi-delete) is fanned out into individual `DELETE_OBJECT` messages, ensuring atomic consistency across all backends.
 
 ### 3. Kafka Replication Worker (`src/s3mer/worker/`)
-- Uses **FastStream** for robust Kafka message processing.
-- Handles retries and Dead Letter Queues (DLQ) for failed replication tasks.
+- Uses **FastStream** for robust Kafka message processing with built-in retries and Dead Letter Queues (DLQ).
 - **State-Sync for Metadata**: For operations like Tagging, the worker fetches the current state from the Primary backend and applies it to Secondaries, ensuring eventual consistency.
 
 ### 4. Observability & Monitoring (`src/s3mer/common/metrics.py`)
-- **Metrics Tracker Architecture**: Uses a decoupled `MetricsTracker` protocol to abstract telemetry from business logic.
-- **Prometheus Integration**: Native support for Prometheus metrics including request latency, data transfer throughput, and backend health status.
-- **Internal Endpoints**: Dedicated `/.internal/metrics` and `/.internal/health` handlers for operational visibility.
+- **Metrics Tracker Protocol**: Decouples business logic from monitoring. Implementation is injected via dependency injection.
+- **Prometheus Integration**: Native support for metrics including:
+    - HTTP request latency and status.
+    - Ingress/Egress data transfer throughput.
+    - **Replication Fan-out Factor**: Number of tasks generated per request.
+    - **Backend Health**: Active monitoring of backend status (1=UP, 0=DOWN).
+- **Internal Endpoints**: Dedicated `/.internal/metrics` and `/.internal/health` for operational visibility.
+
+## Configuration
+
+S3MER uses **Pydantic-settings** for robust configuration management.
+- **YAML Loading**: Loads from `config/settings.yaml` by default.
+- **Environment Variables**: Overrides YAML via `S3MER_` prefixed variables (e.g., `S3MER_LOG_LEVEL=DEBUG`).
+- **Validation**: Automatically ensures exactly one "Primary" backend is configured and that all backend names are unique.
 
 ## Development Rules
 
 - **PEP-8 Compliance**: All code must be PEP-8 compatible. Use `ruff format` to ensure consistency.
 - **Strict Linting**: Disabling linter rules (e.g., `# noqa`) is allowed only for special cases and must be justified.
-- **Dependency Injection**: Use dependency injection for system-level services (like the Metrics Tracker) to ensure testability.
+- **Dependency Injection**: Use dependency injection for system-level services (like the Metrics Tracker) to ensure testability and decoupled monitoring.
 - **Explicit Imports**: Use top-level imports. Avoid inline imports unless strictly necessary for avoiding circular dependencies.
+- **Type Safety**: All new code must pass `ty check` with zero errors.
 
 ## Supported S3 API Operations
 
@@ -66,12 +78,6 @@ S3MER is a high-performance, asynchronous S3 proxy designed to provide consisten
 - **Run E2E Suite**: `make test`
 - **Clean Environment**: `make clean`
 
-### 2. Linting and Formatting
-We use **Ruff** for extremely fast linting and formatting, and **ty** for strict type checking.
-- **Check Linting**: `uv run ruff check src tests`
-- **Format Code**: `uv run ruff format src tests`
-- **Type Checking**: `uv run ty check src tests`
-
-### 3. Testing
+### 2. Testing
 - **Unit Testing**: Local tests with mocks: `uv run pytest tests/unit`
-- **E2E Testing**: Full integration via Docker: `docker compose -f docker-compose-test.yaml up --build --exit-code-from pytest-runner`
+- **E2E Testing**: Full integration via Docker Compose: `make test`
