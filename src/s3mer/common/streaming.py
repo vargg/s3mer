@@ -81,8 +81,18 @@ class BufferedStreamReader(AsyncIterator[bytes]):
     async def read(self, n: int = -1) -> bytes:
         """Read n bytes from the current source (stream or buffer)."""
         if self._read_from_tmp:
-            # SpooledTemporaryFile.read is sync, but aiobotocore handles it
-            return self._tmp_file.read(n)
+            # Try to read from the buffer first
+            chunk = self._tmp_file.read(n)
+            if chunk:
+                return chunk
+            
+            # If we reached the end of the buffer but the original source 
+            # hasn't finished, switch back to live reading.
+            if not self._eof_reached:
+                self._read_from_tmp = False
+                logger.debug("Buffer exhausted, resuming live read from source")
+            else:
+                return b""
 
         if self._eof_reached:
             return b""
