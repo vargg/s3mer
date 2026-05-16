@@ -1,16 +1,6 @@
-"""Simple ASGI response types for the S3 proxy.
+from collections.abc import AsyncGenerator, Callable
 
-These are standalone — no framework dependency.
-"""
-
-from collections.abc import AsyncGenerator, Awaitable, Callable, MutableMapping
-from typing import Any
-
-# ASGI Type Aliases
-Scope = MutableMapping[str, Any]
-Message = MutableMapping[str, Any]
-Receive = Callable[[], Awaitable[Message]]
-Send = Callable[[Message], Awaitable[None]]
+from s3m.common.types import Receive, Scope, Send
 
 
 class ASGIResponse:
@@ -22,15 +12,15 @@ class ASGIResponse:
         status_code: int = 200,
         media_type: str = "application/xml",
         headers: dict[str, str] | None = None,
+        on_bytes_sent: Callable[[int], None] | None = None,
     ) -> None:
         self.body = content
         self.status_code = status_code
         self.media_type = media_type
         self.extra_headers = headers or {}
+        self.on_bytes_sent = on_bytes_sent
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        del scope
-        del receive
+    async def __call__(self, _scope: Scope, _receive: Receive, send: Send) -> None:
         extra_lower = {k.lower(): v for k, v in self.extra_headers.items()}
         headers: list[tuple[bytes, bytes]] = []
 
@@ -57,6 +47,9 @@ class ASGIResponse:
             },
         )
 
+        if self.on_bytes_sent:
+            self.on_bytes_sent(len(self.body))
+
 
 class ASGIStreamingResponse:
     """An ASGI HTTP response that streams the body via an async generator."""
@@ -67,15 +60,15 @@ class ASGIStreamingResponse:
         status_code: int = 200,
         media_type: str = "application/octet-stream",
         headers: dict[str, str] | None = None,
+        on_bytes_sent: Callable[[int], None] | None = None,
     ) -> None:
         self._generator = generator
         self.status_code = status_code
         self.media_type = media_type
         self.extra_headers = headers or {}
+        self.on_bytes_sent = on_bytes_sent
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        del scope
-        del receive
+    async def __call__(self, _scope: Scope, _receive: Receive, send: Send) -> None:
         extra_lower = {k.lower(): v for k, v in self.extra_headers.items()}
         resp_headers: list[tuple[bytes, bytes]] = []
 
@@ -101,6 +94,8 @@ class ASGIStreamingResponse:
                     "more_body": True,
                 },
             )
+            if self.on_bytes_sent:
+                self.on_bytes_sent(len(chunk))
 
         await send(
             {

@@ -6,6 +6,7 @@ from faststream import FastStream
 
 from s3m.backends.pool import BackendPool
 from s3m.common.logging import get_logger, setup_logging
+from s3m.common.metrics import get_tracker
 from s3m.config.settings import load_settings
 from s3m.kafka.broker import create_broker
 from s3m.kafka.subscribers import register_subscribers
@@ -18,8 +19,9 @@ def create_worker_app() -> FastStream:
     settings = load_settings()
     setup_logging(settings.log_level)
 
+    metrics = get_tracker()
     broker = create_broker(settings.kafka)
-    pool = BackendPool(settings.backends)
+    pool = BackendPool(settings.backends, metrics)
 
     # Register the replication subscriber
     register_subscribers(broker, settings.kafka.topic, pool)

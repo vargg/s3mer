@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError
 
 from s3m.backends.pool import BackendPool
 from s3m.common.logging import get_logger
+from s3m.common.metrics import MetricsTracker
 from s3m.common.streaming import BufferedStreamReader
 from s3m.kafka.manager import ReplicationManager
 from s3m.kafka.publisher import ReplicationPublisher
@@ -23,8 +24,9 @@ class WritePrimaryReplicationStrategy:
     to secondary backends.
     """
 
-    def __init__(self, replication_manager: ReplicationManager) -> None:
+    def __init__(self, replication_manager: ReplicationManager, metrics: MetricsTracker) -> None:
         self._replication_manager = replication_manager
+        self._metrics = metrics
 
     @property
     def publisher(self) -> ReplicationPublisher:
@@ -50,7 +52,7 @@ class WritePrimaryReplicationStrategy:
         # If Body is an AsyncIterator, wrap it to allow replaying on fallback
         original_body = params.get("Body")
         if original_body and isinstance(original_body, AsyncIterator):
-            params["Body"] = BufferedStreamReader(original_body)
+            params["Body"] = BufferedStreamReader(original_body, self._metrics)
 
         response: dict[str, Any] | None = None
         successful_backend = None

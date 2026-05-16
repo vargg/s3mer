@@ -2,6 +2,7 @@
 
 from s3m.backends.client import S3BackendClient
 from s3m.common.logging import get_logger
+from s3m.common.metrics import MetricsTracker
 from s3m.config.settings import BackendConfig
 
 logger = get_logger(__name__)
@@ -15,12 +16,12 @@ class BackendPool:
     and iteration over all backends sorted by read priority.
     """
 
-    def __init__(self, configs: list[BackendConfig]) -> None:
+    def __init__(self, configs: list[BackendConfig], metrics: MetricsTracker) -> None:
         self._clients: dict[str, S3BackendClient] = {}
         self._primary: S3BackendClient | None = None
 
         for cfg in configs:
-            client = S3BackendClient(cfg)
+            client = S3BackendClient(cfg, metrics)
             self._clients[cfg.name] = client
             if cfg.is_primary:
                 self._primary = client

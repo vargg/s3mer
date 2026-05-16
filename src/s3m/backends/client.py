@@ -1,11 +1,11 @@
-"""S3 backend client wrapping aiobotocore for a single storage backend."""
-
+import time
 from typing import Any
 
 from aiobotocore.config import AioConfig
 from aiobotocore.session import get_session
 
 from s3m.common.logging import get_logger
+from s3m.common.metrics import MetricsTracker
 from s3m.config.settings import BackendConfig
 from s3m.routing.operations import S3Operation
 
@@ -21,11 +21,12 @@ class S3BackendClient:
     S3 operations against a specific backend.
     """
 
-    def __init__(self, config: BackendConfig) -> None:
+    def __init__(self, config: BackendConfig, metrics: MetricsTracker) -> None:
         self.config = config
         self.name = config.name
         self.is_primary = config.is_primary
         self.priority = config.priority
+        self._metrics = metrics
         self._client: Any = None
         self._session = get_session()
 
@@ -82,4 +83,17 @@ class S3BackendClient:
             key=params.get("Key"),
         )
 
-        return await method(**params)
+        # Wrap in timer and status check
+        start_time = time.perf_counter()
+        try:
+            result = await method(**params)
+        except Exception:
+            duration = time.perf_counter() - start_time
+            self._metrics.record_backend_request(self.name, operation.value, "error", duration)
+            self._metrics.record_backend_status(self.name, False)
+            raise
+        else:
+            duration = time.perf_counter() - start_time
+            self._metrics.record_backend_request(self.name, operation.value, "success", duration)
+            self._metrics.record_backend_status(self.name, True)
+            return result

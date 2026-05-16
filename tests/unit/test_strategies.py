@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from s3m.common.metrics import NullMetricsTracker
 from s3m.routing.operations import S3Operation
 from s3m.strategies.read import ReadFallbackStrategy
 from s3m.strategies.write import WritePrimaryReplicationStrategy
@@ -95,7 +96,7 @@ class TestWritePrimaryReplicationStrategy:
 
     @pytest.fixture
     def strategy(self, replication_manager: AsyncMock) -> WritePrimaryReplicationStrategy:
-        return WritePrimaryReplicationStrategy(replication_manager)
+        return WritePrimaryReplicationStrategy(replication_manager, NullMetricsTracker())
 
     async def test_writes_to_primary(
         self,

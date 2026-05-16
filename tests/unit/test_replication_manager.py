@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from s3m.common.metrics import NullMetricsTracker
 from s3m.kafka.manager import ReplicationManager
 from s3m.routing.operations import S3Operation
 
@@ -15,7 +16,7 @@ class TestReplicationManager:
 
     @pytest.fixture
     def manager(self, publisher: AsyncMock) -> ReplicationManager:
-        return ReplicationManager(publisher)
+        return ReplicationManager(publisher, NullMetricsTracker())
 
     async def test_schedule_single_object_replication(
         self,

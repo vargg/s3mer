@@ -3,6 +3,7 @@
 from typing import Any
 
 from s3m.common.logging import get_logger
+from s3m.common.metrics import MetricsTracker
 from s3m.kafka.messages import ReplicationMessage
 from s3m.kafka.publisher import ReplicationPublisher
 from s3m.routing.operations import S3Operation
@@ -18,8 +19,9 @@ class ReplicationManager:
     It decides what replication messages to send based on the operation performed.
     """
 
-    def __init__(self, publisher: ReplicationPublisher) -> None:
+    def __init__(self, publisher: ReplicationPublisher, metrics: MetricsTracker) -> None:
         self._publisher = publisher
+        self._metrics = metrics
 
     @property
     def publisher(self) -> ReplicationPublisher:
@@ -40,55 +42,86 @@ class ReplicationManager:
         if not target_backend_names:
             return
 
-        # Build metadata from both params and response
-        metadata: dict[str, Any] = {}
-        for key in ("ETag", "ContentType", "ContentLength"):
-            if key in response:
-                metadata[key] = response[key]
-            elif key in params:
-                metadata[key] = params[key]
+        # 1. Map complex operations to simple replication tasks
+        target_operation = self._map_operation(operation)
 
-        # Determine the replication operation
-        # If we're completing a multipart upload or copying an object,
-        # the replication operation should actually be PUT_OBJECT
-        # so the worker can just read the fully assembled/copied object.
-        rep_op = (
-            S3Operation.PUT_OBJECT.value
-            if operation in (S3Operation.COMPLETE_MULTIPART_UPLOAD, S3Operation.COPY_OBJECT)
-            else operation.value
+        # 2. Extract keys for fan-out (e.g., DeleteObjects)
+        keys_to_replicate = self._extract_keys(operation, params, response)
+
+        # Track fan-out amplification
+        self._metrics.record_replication_fanout(operation.value, len(keys_to_replicate))
+
+        # 3. Build metadata from response
+        metadata = self._build_metadata(params, response)
+
+        logger.debug(
+            "Scheduling replication",
+            operation=operation.value,
+            target_op=target_operation,
+            keys=keys_to_replicate,
+            targets=target_backend_names,
         )
 
-        if operation == S3Operation.DELETE_OBJECTS:
-            # Fan-out: replicate each deleted object individually
-            objects = params.get("Delete", {}).get("Objects", [])
-            for obj in objects:
-                message = ReplicationMessage(
-                    operation=S3Operation.DELETE_OBJECT.value,
-                    bucket=params.get("Bucket", ""),
-                    key=obj["Key"],
-                    source_backend=source_backend_name,
-                    target_backends=target_backend_names,
-                    metadata=metadata,
-                )
-                await self._publisher.publish(message)
-        else:
-            # Standard single message replication
-            message = ReplicationMessage(
-                operation=rep_op,
-                bucket=params.get("Bucket", ""),
-                key=params.get("Key"),
+        # 4. Generate and publish messages
+        for key in keys_to_replicate:
+            msg = ReplicationMessage(
+                operation=target_operation,
+                bucket=params["Bucket"],
+                key=key,
                 source_backend=source_backend_name,
                 target_backends=target_backend_names,
                 metadata=metadata,
             )
-            await self._publisher.publish(message)
+
+            # Track individual tasks
+            for target in target_backend_names:
+                self._metrics.record_replication_task(target_operation, target)
+
+            await self._publisher.publish(msg)
 
         logger.info(
             "Replication scheduled",
             operation=operation.value,
             source=source_backend_name,
             targets=target_backend_names,
-            num_messages=len(params.get("Delete", {}).get("Objects", []))
-            if operation == S3Operation.DELETE_OBJECTS
-            else 1,
+            num_tasks=len(keys_to_replicate),
         )
+
+    def _map_operation(self, operation: S3Operation) -> str:
+        """Map S3 proxy operation to a replication task operation."""
+        if operation in (S3Operation.COMPLETE_MULTIPART_UPLOAD, S3Operation.COPY_OBJECT):
+            # Worker should just perform a regular PUT by reading from the source
+            return S3Operation.PUT_OBJECT.value
+
+        if operation == S3Operation.DELETE_OBJECTS:
+            return S3Operation.DELETE_OBJECT.value
+
+        return operation.value
+
+    def _extract_keys(
+        self, operation: S3Operation, params: dict[str, Any], response: dict[str, Any]
+    ) -> list[str | None]:
+        """Extract all keys that need to be replicated."""
+        if operation == S3Operation.DELETE_OBJECTS:
+            # We use the response if available (successful deletions), fallback to params
+            deleted = response.get("Deleted", [])
+            if deleted:
+                return [d["Key"] for d in deleted]
+            return [obj["Key"] for obj in params.get("Delete", {}).get("Objects", [])]
+
+        # Bucket operations don't have a key, but still need one replication task
+        if operation in (S3Operation.CREATE_BUCKET, S3Operation.DELETE_BUCKET):
+            return [None]
+
+        key = params.get("Key")
+        return [key] if key else []
+
+    def _build_metadata(self, params: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
+        """Extract metadata for replication tasks."""
+        metadata: dict[str, Any] = {}
+        for key in ("ETag", "ContentType", "ContentLength"):
+            if key in response:
+                metadata[key] = response[key]
+            elif key in params:
+                metadata[key] = params[key]
+        return metadata

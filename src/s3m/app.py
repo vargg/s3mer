@@ -7,14 +7,9 @@ from typing import Any
 from s3m.backends.pool import BackendPool
 from s3m.common.errors import S3ErrorResponse, S3Errors
 from s3m.common.logging import get_logger, setup_logging
-from s3m.common.metrics import (
-    HTTP_REQUEST_DURATION_SECONDS,
-    HTTP_REQUESTS_TOTAL,
-    health_handler,
-    metrics_handler,
-)
-from s3m.common.responses import Receive, Scope, Send
+from s3m.common.metrics import get_tracker
 from s3m.common.streaming import ASGIStreamReader, AWSChunkedDecoder
+from s3m.common.types import Receive, Scope, Send
 from s3m.config.settings import load_settings
 from s3m.handlers.buckets import (
     handle_create_bucket,
@@ -25,6 +20,7 @@ from s3m.handlers.buckets import (
     handle_list_objects,
     handle_list_objects_v2,
 )
+from s3m.handlers.internal import health_handler, metrics_handler
 from s3m.handlers.objects import (
     handle_abort_multipart_upload,
     handle_complete_multipart_upload,
@@ -65,6 +61,7 @@ class S3ProxyApp:
         self._read_strategy: ReadFallbackStrategy | None = None
         self._write_strategy: WritePrimaryReplicationStrategy | None = None
         self._broker: Any = None
+        self._metrics = get_tracker()
         self._started = False
 
     async def startup(self) -> None:
@@ -76,18 +73,18 @@ class S3ProxyApp:
         log.info("Starting s3m proxy", backends=[b.name for b in settings.backends])
 
         # Backend pool
-        self._pool = BackendPool(settings.backends)
+        self._pool = BackendPool(settings.backends, self._metrics)
         await self._pool.start()
 
         # Kafka
         self._broker = create_broker(settings.kafka)
         await self._broker.start()
         publisher = ReplicationPublisher(self._broker, settings.kafka.topic)
-        replication_manager = ReplicationManager(publisher)
+        replication_manager = ReplicationManager(publisher, self._metrics)
 
         # Strategies
         self._read_strategy = ReadFallbackStrategy()
-        self._write_strategy = WritePrimaryReplicationStrategy(replication_manager)
+        self._write_strategy = WritePrimaryReplicationStrategy(replication_manager, self._metrics)
 
         self._started = True
         log.info("s3m proxy ready")
@@ -161,6 +158,7 @@ class S3ProxyApp:
                 query_string = scope.get("query_string", b"")
                 s3_req = classify_request(method, path, query_string, headers)
                 operation_name = s3_req.operation.value
+                scope["s3m.operation"] = operation_name
             except ValueError:
                 response = S3ErrorResponse(
                     error_code=S3Errors.METHOD_NOT_ALLOWED,
@@ -179,7 +177,13 @@ class S3ProxyApp:
                     ).to_response()
                 else:
                     response = await self._dispatch(
-                        s3_req.operation, s3_req.bucket or "", s3_req.key, receive, headers, query_string
+                        s3_req.operation,
+                        operation_name,
+                        s3_req.bucket or "",
+                        s3_req.key,
+                        receive,
+                        headers,
+                        query_string,
                     )
             except Exception as exc:
                 logger.exception("Unhandled error in S3 proxy", error=str(exc))
@@ -196,15 +200,23 @@ class S3ProxyApp:
                 response.extra_headers["connection"] = "close"
 
             status_code = getattr(response, "status_code", 500)
+
+            # Inject metrics callback for outbound data transfer
+            def record_out_bytes(n: int) -> None:
+                self._metrics.record_data_transfer(direction="out", operation=operation_name, bytes_count=n)
+
+            if hasattr(response, "on_bytes_sent"):
+                response.on_bytes_sent = record_out_bytes
+
             await response(scope, receive, send)
         finally:
             duration = time.perf_counter() - start_time
-            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, operation=operation_name).observe(duration)
-            HTTP_REQUESTS_TOTAL.labels(method=method, operation=operation_name, status=status_code).inc()
+            self._metrics.record_request(method=method, operation=operation_name, status=status_code, duration=duration)
 
     async def _dispatch(
         self,
         operation: S3Operation,
+        operation_name: str,
         bucket: str,
         key: str | None,
         receive: Receive,
@@ -241,7 +253,7 @@ class S3ProxyApp:
             case S3Operation.LIST_OBJECTS:
                 return await handle_list_objects(bucket, pool, read_strategy, query_string)
             case S3Operation.DELETE_OBJECTS:
-                body = await _read_body(receive)
+                body = await self._read_body(receive, operation_name)
                 return await handle_delete_objects(bucket, pool, write_strategy, body)
 
             # Object operations — key is required
@@ -267,6 +279,7 @@ class S3ProxyApp:
                     ).to_response()
                 return await self._dispatch_object(
                     operation,
+                    operation_name,
                     bucket,
                     key,
                     receive,
@@ -286,6 +299,7 @@ class S3ProxyApp:
     async def _dispatch_object(  # noqa: PLR0912
         self,
         operation: S3Operation,
+        operation_name: str,
         bucket: str,
         key: str,
         receive: Receive,
@@ -300,7 +314,11 @@ class S3ProxyApp:
             case S3Operation.PUT_OBJECT:
                 content_length_str = headers.get("content-length")
                 content_length = int(content_length_str) if content_length_str else None
-                body = ASGIStreamReader(receive)
+
+                def on_read(n: int) -> None:
+                    self._metrics.record_data_transfer(direction="in", operation=operation_name, bytes_count=n)
+
+                body = ASGIStreamReader(receive, on_read=on_read)
 
                 if headers.get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
                     body = AWSChunkedDecoder(body)
@@ -318,7 +336,7 @@ class S3ProxyApp:
             case S3Operation.DELETE_OBJECT:
                 return await handle_delete_object(bucket, key, pool, write_strategy)
             case S3Operation.PUT_OBJECT_TAGGING:
-                body = await _read_body(receive)
+                body = await self._read_body(receive, operation_name)
                 return await handle_put_object_tagging(bucket, key, pool, write_strategy, body)
             case S3Operation.GET_OBJECT_TAGGING:
                 return await handle_get_object_tagging(bucket, key, pool, read_strategy)
@@ -331,7 +349,11 @@ class S3ProxyApp:
             case S3Operation.UPLOAD_PART:
                 content_length_str = headers.get("content-length")
                 content_length = int(content_length_str) if content_length_str else None
-                body = ASGIStreamReader(receive)
+
+                def on_read(n: int) -> None:
+                    self._metrics.record_data_transfer(direction="in", operation=operation_name, bytes_count=n)
+
+                body = ASGIStreamReader(receive, on_read=on_read)
 
                 if headers.get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
                     body = AWSChunkedDecoder(body)
@@ -341,7 +363,7 @@ class S3ProxyApp:
 
                 return await handle_upload_part(bucket, key, body, pool, write_strategy, query_string, content_length)
             case S3Operation.COMPLETE_MULTIPART_UPLOAD:
-                body = await _read_body(receive)
+                body = await self._read_body(receive, operation_name)
                 return await handle_complete_multipart_upload(bucket, key, body, pool, write_strategy, query_string)
             case S3Operation.ABORT_MULTIPART_UPLOAD:
                 return await handle_abort_multipart_upload(bucket, key, pool, write_strategy, query_string)
@@ -351,18 +373,19 @@ class S3ProxyApp:
                     message=f"Operation {operation} not implemented",
                 ).to_response()
 
-
-async def _read_body(receive: Receive) -> bytes:
-    """Read the full request body from ASGI receive."""
-    chunks: list[bytes] = []
-    while True:
-        message = await receive()
-        body = message.get("body", b"")
-        if body:
-            chunks.append(body)
-        if not message.get("more_body", False):
-            break
-    return b"".join(chunks)
+    async def _read_body(self, receive: Receive, operation: str = "unknown") -> bytes:
+        """Read the full request body from ASGI receive."""
+        chunks: list[bytes] = []
+        while True:
+            message = await receive()
+            body = message.get("body", b"")
+            if body:
+                chunks.append(body)
+            if not message.get("more_body", False):
+                break
+        result = b"".join(chunks)
+        self._metrics.record_data_transfer(direction="in", operation=operation, bytes_count=len(result))
+        return result
 
 
 def create_app() -> S3ProxyApp:

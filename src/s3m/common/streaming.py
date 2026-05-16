@@ -1,11 +1,13 @@
 """Async streaming utilities for proxying S3 object bodies."""
 
 import tempfile
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from enum import Enum, auto
 from typing import Any, Self
 
 from s3m.common.logging import get_logger
+from s3m.common.metrics import MetricsTracker
+from s3m.common.types import Receive
 
 logger = get_logger(__name__)
 
@@ -43,12 +45,16 @@ class BufferedStreamReader(AsyncIterator[bytes]):
     def __init__(
         self,
         reader: AsyncIterator[bytes],
+        metrics: MetricsTracker,
         max_memory_size: int = 10 * 1024 * 1024,  # 10 MB
     ) -> None:
         self.reader = reader
+        self._metrics = metrics
         self._tmp_file = tempfile.SpooledTemporaryFile(max_size=max_memory_size, mode="w+b")  # noqa: SIM115
         self._read_from_tmp = False
         self._eof_reached = False
+
+        self._metrics.record_active_stream_readers(1)
 
     def seek_to_start(self) -> None:
         """Switch to reading from the buffer and reset position to start."""
@@ -92,6 +98,7 @@ class BufferedStreamReader(AsyncIterator[bytes]):
     def close(self) -> None:
         """Close and delete the temporary buffer."""
         self._tmp_file.close()
+        self._metrics.record_active_stream_readers(-1)
 
     def tell(self) -> int:
         """Required for some botocore validations, though we are technically unseekable."""
@@ -101,10 +108,11 @@ class BufferedStreamReader(AsyncIterator[bytes]):
 class ASGIStreamReader(AsyncIterator[bytes]):
     """An async stream reader that reads from the ASGI receive channel."""
 
-    def __init__(self, receive: Any) -> None:
+    def __init__(self, receive: Receive, on_read: Callable[[int], None] | None = None) -> None:
         self.receive = receive
         self._buffer = bytearray()
         self._more_body = True
+        self._on_read = on_read
 
     async def read(self, n: int = -1) -> bytes:
         if n == -1:
@@ -117,8 +125,11 @@ class ASGIStreamReader(AsyncIterator[bytes]):
                 elif msg["type"] == "http.disconnect":
                     self._more_body = False
                     break
+            result = b"".join(chunks)
             self._buffer.clear()
-            return b"".join(chunks)
+            if self._on_read:
+                self._on_read(len(result))
+            return result
 
         while len(self._buffer) < n and self._more_body:
             msg = await self.receive()
@@ -131,6 +142,8 @@ class ASGIStreamReader(AsyncIterator[bytes]):
 
         chunk = bytes(self._buffer[:n])
         del self._buffer[:n]
+        if self._on_read:
+            self._on_read(len(chunk))
         return chunk
 
     def __aiter__(self) -> Self:
