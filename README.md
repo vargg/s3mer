@@ -67,6 +67,37 @@ Make sure you have the following installed on your system:
    uv sync
    ```
 
+### Running S3MER
+
+S3MER requires external services (S3 backends and Apache Kafka) to be running before launching the proxy server and the background replication worker.
+
+#### 1. Start External Dependencies (Docker Compose)
+We provide a standard `docker-compose.yml` that boots up MinIO for the Primary and Secondary S3 storage, Kafka as the event broker, and a Kafka UI for monitoring:
+```bash
+docker compose up -d
+```
+Once started, the following services are available:
+- **Primary S3 Console**: [http://localhost:9001](http://localhost:9001) (Credentials: `minioadmin` / `minioadmin`)
+- **Secondary S3 Console**: [http://localhost:9003](http://localhost:9003) (Credentials: `minioadmin` / `minioadmin`)
+- **Kafka UI**: [http://localhost:8080](http://localhost:8080) (for topic and replication task monitoring)
+
+#### 2. Start the S3 Proxy Server
+Launch the main S3 proxy web server running on port `8000`:
+```bash
+uv run uvicorn s3mer.app:app --host 0.0.0.0 --port 8000
+```
+The S3 proxy will handle incoming client requests, synchronously write data to the Primary S3 backend, and then publish an asynchronous replication event.
+
+#### 3. Start the Decoupled Replication Worker
+Launch the FastStream Kafka consumer to process replication tasks asynchronously in the background:
+```bash
+uv run python -m s3mer.worker.app
+```
+*Alternatively, you can run the worker using the FastStream CLI:*
+```bash
+uv run faststream run s3mer.worker.app:worker_app
+```
+
 ---
 
 ## ⚙️ Configuration
