@@ -12,13 +12,15 @@ S3MER is a high-performance, asynchronous S3 proxy designed to provide consisten
 - **Memory-Efficient Streaming**: Implements on-the-fly streaming for `PUT` and `GET` operations. Large objects are never buffered in memory.
 - **AWS Chunked Decoding**: Custom `AWSChunkedDecoder` handles `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` (SigV4 chunked) unwrapping without memory overhead.
 
-### 2. Replication Strategy (`src/s3mer/strategies/`)
-- **Primary-Synchronous**: Writes are first committed to a "Primary" backend.
-- **Secondary-Asynchronous**: Upon success, a message is published to Kafka for background replication to "Secondary" backends.
-- **Replayable Fallbacks**: The `WritePrimaryReplicationStrategy` uses `BufferedStreamReader` to buffer the request body to a temporary file, allowing the stream to be "replayed" if the Primary backend fails and a fallback attempt is needed.
-- **Zero-Touch Replication**: Cleverly reuses existing S3 operations to avoid complex worker logic:
-    - **Mapping**: `CompleteMultipartUpload` and `CopyObject` are replicated as a standard `PUT_OBJECT` where the worker reads from Primary and writes to Secondary.
-    - **Fan-out**: `DeleteObjects` (Multi-delete) is fanned out into individual `DELETE_OBJECT` messages, ensuring atomic consistency across all backends.
+### 2. Unified Backend & Strategies (`src/s3mer/backends/`)
+- **Unified Domain Namespace**: Consolidates connection pooling (`pool.py`), connection client session wrapper (`client.py`), and execution strategies (`strategies.py`) under a single flatter namespace to maximize cohesion and eliminate directory sprawl.
+- **Primary-Synchronous Writes**: Writes are committed synchronously first to the primary backend.
+- **Secondary-Asynchronous Replication**: Upon success, replication tasks are published asynchronously to Kafka for execution by background workers.
+- **Replayable Fallbacks**: The `WritePrimaryReplicationStrategy` uses a `BufferedStreamReader` to buffer the request body stream to a temporary disk file, allowing the stream to be "replayed" if a primary write fails and a fallback attempt is needed.
+- **Zero-Touch Replication**: Reuses S3 operations to avoid complex worker-side synchronization logic:
+    - **Mapping**: Complex operations like `CompleteMultipartUpload` and `CopyObject` are replicated as a standard `PUT_OBJECT` where the worker reads the finalized object from Primary and writes to Secondary.
+    - **Fan-out**: `DeleteObjects` (Multi-delete) is fanned out into individual `DELETE_OBJECT` tasks to ensure atomic consistency across backends.
+- **Read Fallback Policy**: `ReadFallbackStrategy` iterates backends in priority order (lowest value tried first) to ensure high-availability read failover.
 
 ### 3. Kafka Replication Worker (`src/s3mer/worker/`)
 - Uses **FastStream** for robust Kafka message processing with built-in retries and Dead Letter Queues (DLQ).
@@ -99,3 +101,12 @@ S3MER uses **Pydantic-settings** for robust configuration management.
 ### 2. Testing
 - **Unit Testing**: Local tests with mocks: `uv run pytest tests/unit`
 - **E2E Testing**: Full integration via Docker Compose: `make test`
+
+## Architectural Insights & Reliability Controls
+
+Our recent system architecture review highlighted several core distributed systems designs and identified reliability safeguards to guarantee high data durability:
+
+1. **Transactional Outbox / Write-Ahead Log (WAL)**: To prevent event loss when a write succeeds on the primary backend but uvicorn crashes before Kafka publishing completes, a local persistent write-ahead log (WAL) should be used as a transactional outbox.
+2. **Pausible Queue Failover**: The FastStream background consumer utilizes a pause-seek-resume pattern to pause the partition and retry when encountering transient rate-limiting/timeouts. On permanent client failure, it skips the bad offset (`failed_offset + 1`) to preserve queue progress.
+3. **Anti-Entropy Reconciliation**: Out-of-band self-healing reconcilers should periodically perform fast checksum-based validation scans to identify and sync discrepancies between Primary and Secondaries.
+4. **Declarative Error Mapping**: Granular classification registry is used to categorise client errors, transient network faults, and server rate-limiting codes into action buckets (`RETRY`, `FALLBACK`, `FAIL`).
