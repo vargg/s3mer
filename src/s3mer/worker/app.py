@@ -24,7 +24,7 @@ def create_worker_app() -> FastStream:
     pool = BackendPool(settings.backends, metrics)
 
     # Register the replication subscriber
-    register_subscribers(broker, settings.kafka.topic, pool)
+    register_subscribers(broker, settings.kafka.topic, pool, settings.replication_mode)
 
     app = FastStream(broker)
 

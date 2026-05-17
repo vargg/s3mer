@@ -109,7 +109,9 @@ class TestPerBackendReplicationManager:
 
     @pytest.fixture
     def publisher(self) -> AsyncMock:
-        return AsyncMock()
+        pub = AsyncMock()
+        pub.topic = "s3mer.replication"
+        return pub
 
     @pytest.fixture
     def manager(self, publisher: AsyncMock) -> PerBackendReplicationManager:
@@ -133,12 +135,14 @@ class TestPerBackendReplicationManager:
 
         publisher.publish.assert_called_once()
         msg = publisher.publish.call_args[0][0]
+        kwargs = publisher.publish.call_args[1]
         assert msg.operation == "put_object"
         assert msg.bucket == "my-bucket"
         assert msg.key == "hello.txt"
         assert msg.source_backend == "primary"
         assert msg.target_backends == ["secondary"]
         assert msg.metadata["ETag"] == '"123"'
+        assert kwargs["topic"] == "s3mer.replication.secondary"
 
     async def test_schedule_multiple_targets(
         self,
@@ -158,12 +162,16 @@ class TestPerBackendReplicationManager:
 
         assert publisher.publish.call_count == 2  # noqa: PLR2004
         m1 = publisher.publish.call_args_list[0][0][0]
+        k1 = publisher.publish.call_args_list[0][1]
         m2 = publisher.publish.call_args_list[1][0][0]
+        k2 = publisher.publish.call_args_list[1][1]
 
         assert m1.operation == "put_object"
         assert m1.target_backends == ["sec1"]
+        assert k1["topic"] == "s3mer.replication.sec1"
         assert m2.operation == "put_object"
         assert m2.target_backends == ["sec2"]
+        assert k2["topic"] == "s3mer.replication.sec2"
 
     async def test_schedule_delete_objects_fan_out_multiple_targets(
         self,
@@ -189,18 +197,23 @@ class TestPerBackendReplicationManager:
         # Message 3: k2 to sec1
         # Message 4: k2 to sec2
         calls = [args[0][0] for args in publisher.publish.call_args_list]
+        kwargs = [args[1] for args in publisher.publish.call_args_list]
 
         assert calls[0].key == "k1"
         assert calls[0].target_backends == ["sec1"]
+        assert kwargs[0]["topic"] == "s3mer.replication.sec1"
 
         assert calls[1].key == "k1"
         assert calls[1].target_backends == ["sec2"]
+        assert kwargs[1]["topic"] == "s3mer.replication.sec2"
 
         assert calls[2].key == "k2"
         assert calls[2].target_backends == ["sec1"]
+        assert kwargs[2]["topic"] == "s3mer.replication.sec1"
 
         assert calls[3].key == "k2"
         assert calls[3].target_backends == ["sec2"]
+        assert kwargs[3]["topic"] == "s3mer.replication.sec2"
 
     async def test_does_nothing_if_no_targets(
         self,

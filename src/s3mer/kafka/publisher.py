@@ -19,7 +19,12 @@ class ReplicationPublisher:
         self._broker = broker
         self._topic = topic
 
-    async def publish(self, message: ReplicationMessage) -> None:
+    @property
+    def topic(self) -> str:
+        """Get the base topic name."""
+        return self._topic
+
+    async def publish(self, message: ReplicationMessage, topic: str | None = None) -> None:
         """
         Publish a replication message to Kafka.
 
@@ -33,9 +38,11 @@ class ReplicationPublisher:
             key_parts.append(message.key)
         partition_key = "/".join(key_parts)
 
+        target_topic = topic or self._topic
+
         await self._broker.publish(
             message=message.model_dump_json(),
-            topic=self._topic,
+            topic=target_topic,
             key=partition_key.encode(),
         )
 
@@ -43,6 +50,6 @@ class ReplicationPublisher:
             "Replication message published",
             message_id=message.message_id,
             operation=message.operation,
-            topic=self._topic,
+            topic=target_topic,
             key=partition_key,
         )

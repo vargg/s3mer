@@ -199,7 +199,7 @@ class PerBackendReplicationManager(BaseReplicationManager):
                 )
 
                 self._metrics.record_replication_task(target_operation, target)
-                await self._publisher.publish(msg)
+                await self._publisher.publish(msg, topic=f"{self._publisher.topic}.{target}")
 
         logger.info(
             "Per-backend replication scheduled",

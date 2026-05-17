@@ -1,5 +1,6 @@
 """Application settings loaded from YAML / environment variables."""
 
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal, Self
 
@@ -10,6 +11,13 @@ from pydantic_settings import (
     SettingsConfigDict,
     YamlConfigSettingsSource,
 )
+
+
+class ReplicationMode(StrEnum):
+    """Kafka replication mode strategy."""
+
+    BATCH = "batch"
+    PER_BACKEND = "per_backend"
 
 
 class BackendConfig(BaseModel):
@@ -53,8 +61,8 @@ class Settings(BaseSettings):
     backends: list[BackendConfig] = Field(default_factory=list)
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
     log_level: str = Field(default="INFO")
-    replication_mode: Literal["batch", "per_backend"] = Field(
-        default="batch",
+    replication_mode: ReplicationMode = Field(
+        default=ReplicationMode.PER_BACKEND,
         description="Kafka replication strategy: 'batch' (consolidated) or 'per_backend' (individual).",
     )
 
