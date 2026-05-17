@@ -1,6 +1,7 @@
 """Backend pool — manages all configured S3 backend clients."""
 
 from s3mer.backends.client import S3BackendClient
+from s3mer.backends.prober import LatencyProber
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
 from s3mer.config.settings import BackendConfig
@@ -16,7 +17,12 @@ class BackendPool:
     and iteration over all backends sorted by read priority.
     """
 
-    def __init__(self, configs: list[BackendConfig], metrics: MetricsTracker) -> None:
+    def __init__(
+        self,
+        configs: list[BackendConfig],
+        metrics: MetricsTracker,
+        probe_interval: float = 10.0,
+    ) -> None:
         self._clients: dict[str, S3BackendClient] = {}
         self._primary: S3BackendClient | None = None
 
@@ -26,10 +32,16 @@ class BackendPool:
             if cfg.is_primary:
                 self._primary = client
 
+        # Delegate background latency probing to a dedicated prober class
+        self._prober = LatencyProber(list(self._clients.values()), probe_interval)
+
     async def start(self) -> None:
-        """Start all backend clients."""
+        """Start all backend clients and initiate background latency probing."""
         for client in self._clients.values():
             await client.start()
+
+        self._prober.start()
+
         logger.info(
             "Backend pool started",
             backends=list(self._clients.keys()),
@@ -37,7 +49,9 @@ class BackendPool:
         )
 
     async def close(self) -> None:
-        """Close all backend clients."""
+        """Close all backend clients and stop the background prober."""
+        await self._prober.close()
+
         for client in self._clients.values():
             await client.close()
         logger.info("Backend pool closed")
@@ -70,9 +84,15 @@ class BackendPool:
         candidates.extend(secondaries)
         return candidates
 
-    def all_by_priority(self) -> list[S3BackendClient]:
-        """Get all backends sorted by read priority (lowest first)."""
-        return sorted(self._clients.values(), key=lambda c: c.priority)
+    def all_by_latency(self) -> list[S3BackendClient]:
+        """
+        Get all backends for reading.
+
+        Primary backend is always returned first to guarantee read-after-write consistency,
+        followed by all secondary backends sorted by latency (lowest first, falling back to priority).
+        """
+        secondaries = sorted(self.get_secondaries(), key=lambda c: (c.last_latency, c.priority))
+        return [self.primary, *secondaries]
 
     @property
     def all_clients(self) -> list[S3BackendClient]:

@@ -101,6 +101,10 @@ class Settings(BaseSettings):
         default=10485760,
         description="Max in-memory stream buffer size in bytes before spooling to disk",
     )
+    latency_probe_interval_seconds: float = Field(
+        default=30.0,
+        description="Interval in seconds for active background latency probes.",
+    )
 
     @classmethod
     def settings_customise_sources(

@@ -67,7 +67,7 @@ class ReadFallbackStrategy:
         Raises:
             The last exception if all backends fail.
         """
-        backends = pool.all_by_priority()
+        backends = pool.all_by_latency()
         last_error: Exception | None = None
 
         for backend in backends:

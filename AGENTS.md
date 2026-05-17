@@ -20,7 +20,8 @@ S3MER is a high-performance, asynchronous S3 proxy designed to provide consisten
 - **Zero-Touch Replication**: Reuses S3 operations to avoid complex worker-side synchronization logic:
     - **Mapping**: Complex operations like `CompleteMultipartUpload` and `CopyObject` are replicated as a standard `PUT_OBJECT` where the worker reads the finalized object from Primary and writes to Secondary.
     - **Fan-out**: `DeleteObjects` (Multi-delete) is fanned out into individual `DELETE_OBJECT` tasks to ensure atomic consistency across backends.
-- **Read Fallback Policy**: `ReadFallbackStrategy` iterates backends in priority order (lowest value tried first) to ensure high-availability read failover.
+- **Read Fallback Policy**: `ReadFallbackStrategy` executes reads in dynamic latency order using `BackendPool.all_by_latency()`. It always prioritizes the Primary backend first to guarantee read-after-write consistency, followed by secondary backends sorted by latency (lowest first, falling back to priority as a tie-breaker).
+- **Active Latency Probing**: The decoupled `LatencyProber` (`prober.py`) periodically runs lightweight, bucket-agnostic probes (`LIST_BUCKETS`) on all S3 backends in the background to update actual round-trip latency statistics, marking failed/timeout probes with `float("inf")` to dynamically route reads away from dead backends.
 
 ### 3. Kafka Replication Worker (`src/s3mer/worker/`)
 - Uses **FastStream** for robust Kafka message processing with built-in retries and Dead Letter Queues (DLQ).

@@ -21,10 +21,18 @@ def _make_mock_client(name: str, priority: int = 0, is_primary: bool = False) ->
 def _make_mock_pool(clients: list[MagicMock]) -> MagicMock:
     """Create a mock BackendPool."""
     pool = MagicMock()
-    pool.all_by_priority.return_value = sorted(clients, key=lambda c: c.priority)
-    pool.primary = next((c for c in clients if c.is_primary), clients[0])
+    # Find the designated primary client
+    primary_client = next((c for c in clients if c.is_primary), None)
+    if primary_client is None and clients:
+        primary_client = clients[0]
+        primary_client.is_primary = True  # Ensure it is primary in mock client state too!
+    pool.primary = primary_client
+
     pool.get_secondaries.return_value = [c for c in clients if not c.is_primary]
     pool.get_write_candidates.return_value = [pool.primary, *pool.get_secondaries.return_value]
+    # For reads, primary is first, then secondaries sorted by priority
+    secondaries = sorted(pool.get_secondaries.return_value, key=lambda c: c.priority)
+    pool.all_by_latency.return_value = [pool.primary, *secondaries]
     pool.all_clients = clients
     return pool
 
@@ -73,14 +81,18 @@ class TestReadFallbackStrategy:
             await strategy.execute(S3Operation.GET_OBJECT, pool, {"Bucket": "b", "Key": "k"})
 
     async def test_respects_priority_order(self, strategy: ReadFallbackStrategy) -> None:
+        c_primary = _make_mock_client("primary", priority=5, is_primary=True)
+        c_primary.execute.side_effect = Exception("primary down")
+
         c_high = _make_mock_client("high-prio", priority=10)
         c_low = _make_mock_client("low-prio", priority=0)
         c_low.execute.return_value = {"Body": b"low-prio-data"}
 
-        pool = _make_mock_pool([c_high, c_low])
+        pool = _make_mock_pool([c_primary, c_high, c_low])
         result = await strategy.execute(S3Operation.GET_OBJECT, pool, {"Bucket": "b", "Key": "k"})
 
         assert result == {"Body": b"low-prio-data"}
+        c_primary.execute.assert_called_once()
         c_low.execute.assert_called_once()
         c_high.execute.assert_not_called()
 

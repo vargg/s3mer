@@ -20,7 +20,7 @@ This document tracks planned improvements for making S3MER production-ready, bas
 - [x] **Fix Retry Logic**: The current approach of re-publishing failed messages to the same topic breaks Kafka's partition ordering guarantee. Implement an in-memory backoff or a dedicated retry strategy that preserves per-object order. *(Implemented via the Pause-Seek-Resume pattern with partition isolation and in-memory background backoff retry)*
 - [ ] **Transactional Outbox / Local WAL**: Mitigate dual-write crash risks by appending S3 write replication payloads to a local write-ahead log (WAL) before/concurrent with S3 execution, replaying lost events on crash recovery.
 - [ ] **Anti-Entropy Reconciliation**: Build a background worker/CLI tool to compare ETag and key state checklists across S3 backends and schedule self-healing replication tasks for out-of-sync secondaries.
-- [ ] **Health Check Probing**: Implement active background probing for backends instead of relying solely on request-time failures.
+- [x] **Health Check Probing**: Implement active background probing for backends instead of relying solely on request-time failures. *(Implemented via dedicated LatencyProber active background probing loop)*
 - [ ] **AllConsistent ETag Verification Mode**: Implement an optional strict read strategy that queries all backends and ensures ETag consistency before serving the object to the client, preventing reading from out-of-band drifts.
 - [ ] **Multi-Sync Write Strategy**: Implement an optional synchronous write strategy that streams write operations to all configured backends concurrently, returning success only when all backends complete successfully, with automatic rollback (deletion) on partial failures.
 
@@ -29,7 +29,7 @@ This document tracks planned improvements for making S3MER production-ready, bas
 - [x] **Lifecycle & Policy Support**: Implement proxying and Zero-Touch replication for Bucket Lifecycle and Policy configurations.
 
 ## 6. Developer Experience & Performance (Inspired by ReplicaT4)
-- [ ] **Dynamic Latency-Based Primary Selection**: Implement an active boot-time benchmark that issues parallel probing requests (e.g. `HEAD` bucket) to all configured backends, measures median P50 response times, and automatically selects the fastest backend as the primary or orders read fallbacks.
+- [/] **Dynamic Latency-Based Primary Selection**: Implement an active boot-time benchmark that issues parallel probing requests (e.g. `HEAD` bucket) to all configured backends, measures median P50 response times, and automatically selects the fastest backend as the primary or orders read fallbacks. *(Implemented dynamic latency-based read fallback routing via all_by_latency; dynamic primary selection remains for future roadmap)*
 - [ ] **In-Memory Storage Backend for Mock Testing**: Support a fully in-memory, zero-dependency storage engine configuration option to allow running the proxy instantly for rapid local development, mocking, and lightning-fast unit/integration tests without needing active MinIO instances.
 
 ## 7. Enterprise Features & Webhooks (Inspired by s3-orchestrator)

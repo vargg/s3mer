@@ -29,6 +29,7 @@ class S3BackendClient:
         self._metrics = metrics
         self._client: Any = None
         self._session = get_session()
+        self.last_latency: float = 0.0
 
     async def start(self) -> None:
         """Initialize the aiobotocore client. Call once at app startup."""

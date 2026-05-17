@@ -160,7 +160,11 @@ class S3ProxyApp:
         metrics_tracker = get_tracker()
 
         self._broker = create_broker(settings.kafka)
-        self._pool = BackendPool(settings.backends, metrics_tracker)
+        self._pool = BackendPool(
+            settings.backends,
+            metrics_tracker,
+            settings.latency_probe_interval_seconds,
+        )
 
         publisher = ReplicationPublisher(self._broker, settings.kafka.topic)
         if settings.replication_mode == ReplicationMode.PER_BACKEND:
