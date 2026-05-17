@@ -18,7 +18,13 @@ from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
 
-RETRY_DELAY = 1  # Base delay in seconds for exponential backoff
+
+class ReplicationDelayConfig:
+    """Replication delay configuration class to avoid global mutations."""
+
+    retry_delay: float = 1.0
+    max_retry_delay: float = 60.0
+
 
 # Keep strong references to background tasks to prevent garbage collection (RUF006)
 _background_tasks: set[asyncio.Task[Any]] = set()
@@ -29,6 +35,7 @@ def register_subscribers(
     topic: str,
     pool: BackendPool,
     mode: ReplicationMode = ReplicationMode.BATCH,
+    kafka_config: Any = None,
 ) -> None:
     """
     Register the replication message subscriber(s) on the broker.
@@ -37,22 +44,32 @@ def register_subscribers(
     1. A single consolidated batch subscriber.
     2. Isolated per-backend subscribers (one per secondary backend).
     """
+    if kafka_config is not None:
+        ReplicationDelayConfig.retry_delay = kafka_config.replication_retry_delay
+        ReplicationDelayConfig.max_retry_delay = kafka_config.replication_max_retry_delay
+
     if mode == ReplicationMode.PER_BACKEND:
         logger.info("Registering isolated per-backend subscribers")
         for backend in pool.get_secondaries():
             backend_topic = f"{topic}.{backend.name}"
-            _register_per_backend_subscriber(broker, backend_topic, pool, backend.name)
+            _register_per_backend_subscriber(broker, backend_topic, pool, backend.name, kafka_config)
     else:
         logger.info("Registering batch subscriber")
-        _register_batch_subscriber(broker, topic, pool)
+        _register_batch_subscriber(broker, topic, pool, kafka_config)
 
 
-def _register_batch_subscriber(broker: KafkaBroker, topic: str, pool: BackendPool) -> None:
+def _register_batch_subscriber(
+    broker: KafkaBroker,
+    topic: str,
+    pool: BackendPool,
+    kafka_config: Any = None,
+) -> None:
     """
     Register a subscriber for the consolidated 'batch' replication mode.
     Consumes from the base topic and uses Consumer-Level Pausing on failure.
     """
-    subscriber = broker.subscriber(topic, group_id="s3mer-workers")
+    concurrency = kafka_config.concurrency if kafka_config is not None else 1
+    subscriber = broker.subscriber(topic, group_id="s3mer-workers", max_workers=concurrency)
 
     @subscriber
     async def handle_batch_replication(msg_raw: str, msg: KafkaMessage) -> None:
@@ -149,12 +166,14 @@ def _register_per_backend_subscriber(
     topic: str,
     pool: BackendPool,
     backend_name: str,
+    kafka_config: Any = None,
 ) -> None:
     """
     Register a subscriber for a specific secondary backend.
     Consumes from f"{topic}.{backend_name}" and uses Per-Backend Pausing on failure.
     """
-    subscriber = broker.subscriber(topic, group_id=f"s3mer-workers-{backend_name}")
+    concurrency = kafka_config.concurrency if kafka_config is not None else 1
+    subscriber = broker.subscriber(topic, group_id=f"s3mer-workers-{backend_name}", max_workers=concurrency)
 
     @subscriber
     async def handle_per_backend_replication(msg_raw: str, msg: KafkaMessage) -> None:
@@ -250,7 +269,10 @@ async def _schedule_global_retry(
     """Background task to retry batch replication and resume all partitions."""
     attempt = 1
     while True:
-        delay = min(RETRY_DELAY * (2 ** (attempt - 1)), 60)
+        delay = min(
+            ReplicationDelayConfig.retry_delay * (2 ** (attempt - 1)),
+            ReplicationDelayConfig.max_retry_delay,
+        )
         logger.info(
             "Background retry: Waiting to retry replication",
             message_id=message.message_id,
@@ -329,7 +351,10 @@ async def _schedule_per_backend_retry(
     """Background task to retry per-backend replication and resume the partition."""
     attempt = 1
     while True:
-        delay = min(RETRY_DELAY * (2 ** (attempt - 1)), 60)
+        delay = min(
+            ReplicationDelayConfig.retry_delay * (2 ** (attempt - 1)),
+            ReplicationDelayConfig.max_retry_delay,
+        )
         logger.info(
             "Background retry: Waiting to retry replication",
             message_id=message.message_id,

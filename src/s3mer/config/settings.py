@@ -37,6 +37,22 @@ class BackendConfig(BaseModel):
         default=0,
         description="Read priority — lower values are tried first",
     )
+    max_pool_connections: int = Field(
+        default=10,
+        description="Max S3 connection pool size",
+    )
+    connect_timeout: int = Field(
+        default=10,
+        description="S3 connect timeout in seconds",
+    )
+    read_timeout: int = Field(
+        default=30,
+        description="S3 read timeout in seconds",
+    )
+    max_attempts: int = Field(
+        default=2,
+        description="Max S3 API retries",
+    )
 
 
 class KafkaConfig(BaseModel):
@@ -45,6 +61,18 @@ class KafkaConfig(BaseModel):
     bootstrap_servers: list[str] = Field(default=["localhost:9092"])
     topic: str = Field(default="s3mer.replication")
     consumer_group: str = Field(default="s3mer-workers")
+    concurrency: int = Field(
+        default=1,
+        description="Number of parallel workers/consumers per process",
+    )
+    replication_retry_delay: float = Field(
+        default=1.0,
+        description="Base retry delay in seconds for replication backoff",
+    )
+    replication_max_retry_delay: float = Field(
+        default=60.0,
+        description="Max retry delay in seconds for replication backoff",
+    )
 
 
 class Settings(BaseSettings):
@@ -64,6 +92,14 @@ class Settings(BaseSettings):
     replication_mode: ReplicationMode = Field(
         default=ReplicationMode.PER_BACKEND,
         description="Kafka replication strategy: 'batch' (consolidated) or 'per_backend' (individual).",
+    )
+    stream_chunk_size: int = Field(
+        default=65536,
+        description="Default streaming chunk size in bytes",
+    )
+    max_memory_stream_buffer_size: int = Field(
+        default=10485760,
+        description="Max in-memory stream buffer size in bytes before spooling to disk",
     )
 
     @classmethod

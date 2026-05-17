@@ -1,7 +1,11 @@
-# s3m proxy configuration
+# s3mer proxy configuration
 # Copy to config/settings.yaml and adjust values
 
 log_level: INFO
+
+# Global streaming defaults
+stream_chunk_size: 65536                  # Chunk size (in bytes) for proxy piping (default 64KB)
+max_memory_stream_buffer_size: 10485760   # Maximum memory buffer (in bytes) before spooling to disk (default 10MB)
 
 backends:
   - name: primary
@@ -12,6 +16,10 @@ backends:
     is_primary: true
     addressing_style: path
     priority: 0
+    max_pool_connections: 25              # Max concurrent connection pool size
+    connect_timeout: 10                   # Connect timeout in seconds
+    read_timeout: 30                      # Read timeout in seconds
+    max_attempts: 3                       # S3 API retry attempts
 
   - name: secondary
     endpoint_url: http://localhost:9002
@@ -21,9 +29,16 @@ backends:
     is_primary: false
     addressing_style: path
     priority: 1
+    max_pool_connections: 15              # Max concurrent connection pool size
+    connect_timeout: 10                   # Connect timeout in seconds
+    read_timeout: 30                      # Read timeout in seconds
+    max_attempts: 3                       # S3 API retry attempts
 
 kafka:
   bootstrap_servers:
     - localhost:9094
-  topic: s3m.replication
-  consumer_group: s3m-workers
+  topic: s3mer.replication
+  consumer_group: s3mer-workers
+  concurrency: 2                          # Number of parallel workers/consumers per process
+  replication_retry_delay: 1.0            # Base retry backoff delay (seconds)
+  replication_max_retry_delay: 60.0       # Max retry backoff delay (seconds)

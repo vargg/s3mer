@@ -20,7 +20,7 @@ async def test_internal_routing_metrics() -> None:
         send: Send = AsyncMock()
 
         # Accessing private member for testing purposes
-        await app._handle_http(scope, receive, send)
+        await app(scope, receive, send)
 
         mock_metrics.assert_called_once_with(scope, receive, send)
 
@@ -33,7 +33,7 @@ async def test_internal_routing_health() -> None:
         receive: Receive = AsyncMock()
         send: Send = AsyncMock()
 
-        await app._handle_http(scope, receive, send)
+        await app(scope, receive, send)
 
         mock_health.assert_called_once_with(scope, receive, send)
 
@@ -47,7 +47,7 @@ async def test_internal_routing_unknown() -> None:
     send: Send = AsyncMock()
 
     # We expect this to call 'send' with a 403 status (Access Denied)
-    await app._handle_http(scope, receive, send)
+    await app(scope, receive, send)
 
     # Check that send was called with 403
     # The ASGIResponse call will call send multiple times (start and body)

@@ -41,9 +41,10 @@ class S3BackendClient:
             config=AioConfig(
                 s3={"addressing_style": self.config.addressing_style, "payload_signing_enabled": False},
                 request_checksum_calculation="when_required",
-                connect_timeout=10,
-                read_timeout=30,
-                retries={"max_attempts": 2},
+                max_pool_connections=self.config.max_pool_connections,
+                connect_timeout=self.config.connect_timeout,
+                read_timeout=self.config.read_timeout,
+                retries={"max_attempts": self.config.max_attempts},
             ),
         ).__aenter__()
         logger.info("Backend client started", backend=self.name, endpoint=self.config.endpoint_url)

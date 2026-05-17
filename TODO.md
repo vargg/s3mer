@@ -13,8 +13,8 @@ This document tracks planned improvements for making S3MER production-ready, bas
 - [ ] **Circuit Breaker**: Implement a basic circuit breaker in `BackendPool` to temporarily skip backends that are consistently failing.
 
 ## 3. Configuration & Resource Management
-- [ ] **Connection Pool Tuning**: Expose `max_pool_connections`, `connect_timeout`, and `read_timeout` in `BackendConfig`.
-- [ ] **Worker Scaling**: Add configuration for Kafka consumer concurrency (number of parallel workers per process).
+- [x] **Connection Pool Tuning**: Expose `max_pool_connections`, `connect_timeout`, and `read_timeout` in `BackendConfig`.
+- [x] **Worker Scaling**: Add configuration for Kafka consumer concurrency (number of parallel workers per process).
 
 ## 4. Consistency & Conflict Resolution
 - [x] **Fix Retry Logic**: The current approach of re-publishing failed messages to the same topic breaks Kafka's partition ordering guarantee. Implement an in-memory backoff or a dedicated retry strategy that preserves per-object order. *(Implemented via the Pause-Seek-Resume pattern with partition isolation and in-memory background backoff retry)*

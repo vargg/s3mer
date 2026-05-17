@@ -8,8 +8,26 @@ from typing import Any, Self
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.types import Receive
+from s3mer.config.settings import load_settings
 
 logger = get_logger(__name__)
+
+
+def get_chunk_size() -> int:
+    """Get the streaming chunk size from configuration, or fallback to default 64KB."""
+    try:
+        return load_settings().stream_chunk_size
+    except Exception:
+        return 65_536
+
+
+def get_max_memory_size() -> int:
+    """Get the max memory buffer size before spooling from configuration, or fallback to 10MB."""
+    try:
+        return load_settings().max_memory_stream_buffer_size
+    except Exception:
+        return 10 * 1024 * 1024
+
 
 # Default chunk size: 64 KB — good balance between throughput and memory
 DEFAULT_CHUNK_SIZE = 65_536
@@ -17,8 +35,10 @@ DEFAULT_CHUNK_SIZE = 65_536
 
 async def stream_s3_body(
     s3_response: dict[str, Any],
-    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    chunk_size: int | None = None,
 ) -> AsyncGenerator[bytes, None]:
+    if chunk_size is None:
+        chunk_size = get_chunk_size()
     """
     Yield chunks from an aiobotocore StreamingBody response.
 
@@ -46,13 +66,16 @@ class BufferedStreamReader(AsyncIterator[bytes]):
         self,
         reader: AsyncIterator[bytes],
         metrics: MetricsTracker,
-        max_memory_size: int = 10 * 1024 * 1024,  # 10 MB
+        max_memory_size: int | None = None,
     ) -> None:
+        if max_memory_size is None:
+            max_memory_size = get_max_memory_size()
         self.reader = reader
         self._metrics = metrics
         self._tmp_file = tempfile.SpooledTemporaryFile(max_size=max_memory_size, mode="w+b")  # noqa: SIM115
         self._read_from_tmp = False
         self._eof_reached = False
+        self._chunk_size = get_chunk_size()
 
         self._metrics.record_active_stream_readers(1)
 
@@ -113,7 +136,7 @@ class BufferedStreamReader(AsyncIterator[bytes]):
         return self
 
     async def __anext__(self) -> bytes:
-        chunk = await self.read(DEFAULT_CHUNK_SIZE)
+        chunk = await self.read(self._chunk_size)
         if not chunk:
             raise StopAsyncIteration
         return chunk
@@ -135,11 +158,17 @@ class BufferedStreamReader(AsyncIterator[bytes]):
 class ASGIStreamReader(AsyncIterator[bytes]):
     """An async stream reader that reads from the ASGI receive channel."""
 
-    def __init__(self, receive: Receive, on_read: Callable[[int], None] | None = None) -> None:
+    def __init__(
+        self,
+        receive: Receive,
+        on_read: Callable[[int], None] | None = None,
+        chunk_size: int | None = None,
+    ) -> None:
         self.receive = receive
         self._buffer = bytearray()
         self._more_body = True
         self._on_read = on_read
+        self._chunk_size = chunk_size if chunk_size is not None else get_chunk_size()
 
     async def read(self, n: int = -1) -> bytes:
         if n == -1:
@@ -179,7 +208,7 @@ class ASGIStreamReader(AsyncIterator[bytes]):
 
     async def __anext__(self) -> bytes:
         """Async iterator protocol."""
-        chunk = await self.read(DEFAULT_CHUNK_SIZE)
+        chunk = await self.read(self._chunk_size)
         if not chunk:
             raise StopAsyncIteration
         return chunk
@@ -205,11 +234,12 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
         self._eof = False
         self._current_chunk_remaining = 0
         self._state = DecoderState.READ_HEADER
+        self._chunk_size = get_chunk_size()
 
     async def _fill_raw_buffer(self, n: int) -> bool:
         """Attempt to fill raw buffer with at least n bytes. Returns True if achieved, False if EOF."""
         while len(self._raw_buffer) < n:
-            chunk = await self.reader.read(DEFAULT_CHUNK_SIZE)
+            chunk = await self.reader.read(self._chunk_size)
             if not chunk:
                 return False
             self._raw_buffer.extend(chunk)
@@ -263,7 +293,7 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
         if n == -1:
             chunks = []
             while not self._eof or self._decoded_buffer:
-                chunk = await self.read(DEFAULT_CHUNK_SIZE)
+                chunk = await self.read(self._chunk_size)
                 if not chunk:
                     break
                 chunks.append(chunk)
@@ -289,7 +319,7 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
         return self
 
     async def __anext__(self) -> bytes:
-        chunk = await self.read(DEFAULT_CHUNK_SIZE)
+        chunk = await self.read(self._chunk_size)
         if not chunk:
             raise StopAsyncIteration
         return chunk
