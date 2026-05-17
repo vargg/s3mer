@@ -407,7 +407,7 @@ async def _schedule_per_backend_retry(
         attempt += 1
 
 
-async def _replicate_operation(  # noqa: PLR0912 - Centralized match-case dispatcher with error handling
+async def _replicate_operation(  # noqa: PLR0912, PLR0915 - Centralized match dispatcher with error handling
     operation: S3Operation,
     message: ReplicationMessage,
     source: S3BackendClient,
@@ -530,6 +530,93 @@ async def _replicate_operation(  # noqa: PLR0912 - Centralized match-case dispat
                 S3Operation.DELETE_OBJECT_TAGGING,
                 {"Bucket": message.bucket, "Key": message.key},
             )
+
+        case S3Operation.PUT_BUCKET_LIFECYCLE:
+            # Fetch current lifecycle configuration from source and apply to target
+            try:
+                lifecycle_resp = await source.execute(
+                    S3Operation.GET_BUCKET_LIFECYCLE,
+                    {"Bucket": message.bucket},
+                )
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code in ("NoSuchBucket", "NoSuchLifecycleConfiguration"):
+                    logger.warning(
+                        "Source bucket or lifecycle configuration no longer exists, skipping replication",
+                        bucket=message.bucket,
+                        error=str(e),
+                    )
+                    return
+                raise
+            await target.execute(
+                S3Operation.PUT_BUCKET_LIFECYCLE,
+                {
+                    "Bucket": message.bucket,
+                    "LifecycleConfiguration": {"Rules": lifecycle_resp.get("Rules", [])},
+                },
+            )
+
+        case S3Operation.DELETE_BUCKET_LIFECYCLE:
+            try:
+                await target.execute(
+                    S3Operation.DELETE_BUCKET_LIFECYCLE,
+                    {"Bucket": message.bucket},
+                )
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code in ("NoSuchBucket", "NoSuchLifecycleConfiguration"):
+                    logger.warning(
+                        "Target bucket or lifecycle configuration no longer exists, skipping delete replication",
+                        bucket=message.bucket,
+                        error=str(e),
+                    )
+                    return
+                raise
+
+        case S3Operation.PUT_BUCKET_POLICY:
+            # Fetch current policy from source and apply to target
+            try:
+                policy_resp = await source.execute(
+                    S3Operation.GET_BUCKET_POLICY,
+                    {"Bucket": message.bucket},
+                )
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code in ("NoSuchBucket", "NoSuchBucketPolicy"):
+                    logger.warning(
+                        "Source bucket or policy no longer exists, skipping replication",
+                        bucket=message.bucket,
+                        error=str(e),
+                    )
+                    return
+                raise
+
+            policy = policy_resp.get("Policy")
+            if policy:
+                await target.execute(
+                    S3Operation.PUT_BUCKET_POLICY,
+                    {
+                        "Bucket": message.bucket,
+                        "Policy": policy,
+                    },
+                )
+
+        case S3Operation.DELETE_BUCKET_POLICY:
+            try:
+                await target.execute(
+                    S3Operation.DELETE_BUCKET_POLICY,
+                    {"Bucket": message.bucket},
+                )
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code")
+                if error_code in ("NoSuchBucket", "NoSuchBucketPolicy"):
+                    logger.warning(
+                        "Target bucket or policy no longer exists, skipping delete replication",
+                        bucket=message.bucket,
+                        error=str(e),
+                    )
+                    return
+                raise
 
         case _:
             logger.warning(

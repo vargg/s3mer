@@ -72,6 +72,8 @@ S3MER uses **Pydantic-settings** for robust configuration management.
 ### Bucket Operations
 - `ListBuckets`, `CreateBucket`, `DeleteBucket`, `HeadBucket`
 - `ListObjects` (V1 & V2), `DeleteObjects` (Multi-delete)
+- `GetBucketLifecycle`, `PutBucketLifecycle`, `DeleteBucketLifecycle`
+- `GetBucketPolicy`, `PutBucketPolicy`, `DeleteBucketPolicy`
 
 ### Object Operations
 - `PutObject` (Regular & `aws-chunked` streaming)

@@ -10,7 +10,7 @@ from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
 from s3mer.common.types import Receive, Scope, Send
-from s3mer.config.settings import load_settings, ReplicationMode
+from s3mer.config.settings import ReplicationMode, load_settings
 from s3mer.handlers.internal import health_handler, metrics_handler
 from s3mer.kafka.broker import create_broker
 from s3mer.kafka.manager import BatchReplicationManager, PerBackendReplicationManager
@@ -199,7 +199,7 @@ class S3ProxyApp:
         log = get_logger("s3mer.shutdown")
         log.info("Shutting down s3mer proxy")
 
-        await self._broker.close()
+        await self._broker.stop()
         await self._pool.close()
 
         log.info("s3mer proxy stopped")

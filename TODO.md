@@ -24,4 +24,4 @@ This document tracks planned improvements for making S3MER production-ready, bas
 
 ## 5. S3 API Coverage
 - [ ] **Versioning Support**: Add support for `versionId` in operations and replication.
-- [ ] **Lifecycle & Policy Support**: Implement proxying for Bucket Lifecycle and Policy configurations.
+- [x] **Lifecycle & Policy Support**: Implement proxying and Zero-Touch replication for Bucket Lifecycle and Policy configurations.

@@ -26,6 +26,16 @@ class S3Operation(StrEnum):
     DELETE_OBJECTS = "delete_objects"
     LIST_OBJECTS = "list_objects"
 
+    # Bucket Lifecycle operations
+    GET_BUCKET_LIFECYCLE = "get_bucket_lifecycle_configuration"
+    PUT_BUCKET_LIFECYCLE = "put_bucket_lifecycle_configuration"
+    DELETE_BUCKET_LIFECYCLE = "delete_bucket_lifecycle_configuration"
+
+    # Bucket Policy operations
+    GET_BUCKET_POLICY = "get_bucket_policy"
+    PUT_BUCKET_POLICY = "put_bucket_policy"
+    DELETE_BUCKET_POLICY = "delete_bucket_policy"
+
     # Object operations
     PUT_OBJECT = "put_object"
     GET_OBJECT = "get_object"

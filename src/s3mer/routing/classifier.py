@@ -93,7 +93,7 @@ class RequestClassifier:
         key = parts[1] if len(parts) > 1 else None
         return bucket, key
 
-    def _refine_operation(
+    def _refine_operation(  # noqa: PLR0912 - Centralized dispatch for request refinement
         self, base_op: S3Operation, query: dict[str, str], headers: dict[str, str] | None, path: str
     ) -> S3Operation:
         """Dispatch to specialized refinement logic based on the base operation's method."""
@@ -111,8 +111,24 @@ class RequestClassifier:
                     raise ValueError(f"Cannot classify POST request without 'delete' query param: {path}")
                 return base_op
             case S3Operation.LIST_OBJECTS_V2:
+                if "lifecycle" in query:
+                    return S3Operation.GET_BUCKET_LIFECYCLE
+                if "policy" in query:
+                    return S3Operation.GET_BUCKET_POLICY
                 if "list-type" not in query or query["list-type"] != "2":
                     return S3Operation.LIST_OBJECTS
+                return base_op
+            case S3Operation.CREATE_BUCKET:
+                if "lifecycle" in query:
+                    return S3Operation.PUT_BUCKET_LIFECYCLE
+                if "policy" in query:
+                    return S3Operation.PUT_BUCKET_POLICY
+                return base_op
+            case S3Operation.DELETE_BUCKET:
+                if "lifecycle" in query:
+                    return S3Operation.DELETE_BUCKET_LIFECYCLE
+                if "policy" in query:
+                    return S3Operation.DELETE_BUCKET_POLICY
                 return base_op
             case _:
                 return base_op
