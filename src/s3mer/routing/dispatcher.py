@@ -3,14 +3,13 @@
 from typing import Any
 
 from s3mer.backends.pool import BackendPool
+from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
 from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder
 from s3mer.common.types import Receive
 from s3mer.routing.classifier import S3Request
 from s3mer.routing.registry import BodyStyle, HandlerContext, registry
-from s3mer.strategies.read import ReadFallbackStrategy
-from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
 
 class RequestDispatcher:

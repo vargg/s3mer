@@ -6,11 +6,10 @@ from enum import Enum, auto
 from typing import Any
 
 from s3mer.backends.pool import BackendPool
+from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.responses import ASGIResponse, ASGIStreamingResponse
 from s3mer.routing.operations import OperationType, S3Operation
-from s3mer.strategies.read import ReadFallbackStrategy
-from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
 
 class BodyStyle(Enum):

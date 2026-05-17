@@ -3,10 +3,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
+from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
 from s3mer.common.metrics import NullMetricsTracker
 from s3mer.routing.operations import S3Operation
-from s3mer.strategies.read import ReadFallbackStrategy
-from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
 
 def _make_mock_client(name: str, priority: int = 0, is_primary: bool = False) -> MagicMock:

@@ -5,6 +5,7 @@ from http import HTTPStatus
 from typing import Any
 
 from s3mer.backends.pool import BackendPool
+from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
 from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
@@ -16,8 +17,6 @@ from s3mer.kafka.manager import BatchReplicationManager, PerBackendReplicationMa
 from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.routing.classifier import RequestClassifier
 from s3mer.routing.dispatcher import RequestDispatcher
-from s3mer.strategies.read import ReadFallbackStrategy
-from s3mer.strategies.write import WritePrimaryReplicationStrategy
 
 logger = get_logger(__name__)
 
