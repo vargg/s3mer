@@ -1,8 +1,14 @@
 """S3-compatible XML error response builders."""
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
+from enum import StrEnum
+from http import HTTPStatus
 from typing import ClassVar, Self
+
+import aiohttp
+from botocore.exceptions import BotoCoreError, ClientError
 
 from s3mer.common.responses import ASGIResponse
 
@@ -135,3 +141,76 @@ def _xml_escape(text: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&apos;")
     )
+
+
+# HTTP Status Constants to avoid magic values (PLR2004)
+HTTP_CLIENT_ERROR_MIN = 400
+HTTP_SERVER_ERROR_MIN = 500
+
+
+class ErrorAction(StrEnum):
+    """Action to take upon encountering an error."""
+
+    RETRY = "retry"  # Transient rate limits, timeouts, connection issues
+    FALLBACK = "fallback"  # Server failures, backend down (5xx)
+    FAIL = "fail"  # Permanent client errors (400, 403, 404, 409)
+
+
+class ErrorClassifier:
+    """Classifies S3 client, network, and system exceptions into granular ErrorActions."""
+
+    @classmethod
+    def classify(cls, exc: Exception) -> ErrorAction:
+        """
+        Classify an exception into an ErrorAction.
+
+        - ClientError with 429/503 status code or rate limiting codes: RETRY
+        - ClientError with >= 500 status code: FALLBACK
+        - ClientError with 4xx status code: FAIL (permanent client error)
+        - TimeoutError, aiohttp.ClientError, BotoCoreError, ConnectionError, OSError: RETRY
+        - All other exceptions: FALLBACK (unhandled system errors)
+        """
+        # 1. Handle botocore ClientError
+        if isinstance(exc, ClientError):
+            response = getattr(exc, "response", None)
+            if not isinstance(response, dict):
+                return ErrorAction.FAIL
+
+            status_code = response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
+
+            # Handle explicit rate limit status codes
+            if status_code in (HTTPStatus.TOO_MANY_REQUESTS, HTTPStatus.SERVICE_UNAVAILABLE):
+                return ErrorAction.RETRY
+
+            # S3 specific error codes that are transient rate limits
+            error_code = response.get("Error", {}).get("Code", "")
+            if error_code in ("RequestLimitExceeded", "SlowDown", "RequestTimeout", "Throttling"):
+                return ErrorAction.RETRY
+
+            # Server-side 5xx status codes
+            if status_code >= HTTP_SERVER_ERROR_MIN:
+                return ErrorAction.FALLBACK
+
+            # Client-side 4xx status codes are permanent errors
+            if HTTP_CLIENT_ERROR_MIN <= status_code < HTTP_SERVER_ERROR_MIN:
+                return ErrorAction.FAIL
+
+            # Fallback for other status codes (e.g. 0 or unknown)
+            return ErrorAction.FAIL
+
+        # 2. Handle network connection, timeouts, and system socket errors
+        if isinstance(
+            exc,
+            (
+                asyncio.TimeoutError,
+                TimeoutError,
+                aiohttp.ClientError,
+                BotoCoreError,
+                ConnectionError,
+                OSError,
+            ),
+        ):
+            return ErrorAction.RETRY
+
+        # 3. All other unexpected exceptions are unhandled system/server issues
+        return ErrorAction.FALLBACK

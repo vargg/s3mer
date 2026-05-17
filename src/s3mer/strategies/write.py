@@ -1,12 +1,10 @@
 """Write strategy — write to primary, replicate to secondaries via Kafka."""
 
 from collections.abc import AsyncIterator
-from http import HTTPStatus
 from typing import Any
 
-from botocore.exceptions import ClientError
-
 from s3mer.backends.pool import BackendPool
+from s3mer.common.errors import ErrorAction, ErrorClassifier
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.streaming import BufferedStreamReader
@@ -73,17 +71,24 @@ class WritePrimaryReplicationStrategy:
                     attempt=i + 1,
                 )
                 break
-            except ClientError as e:
-                # Don't fallback on 4xx errors (client errors), only 5xx or connection issues
-                status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
-                if HTTPStatus.BAD_GATEWAY <= status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
-                    logger.warning("Client error on write, not retrying", backend=backend.name, error=str(e))
-                    raise
-                last_error = e
-                logger.warning("Server error on write, trying fallback", backend=backend.name, error=str(e))
             except Exception as e:
                 last_error = e
-                logger.warning("Unexpected error on write, trying fallback", backend=backend.name, error=str(e))
+                action = ErrorClassifier.classify(e)
+                if action == ErrorAction.FAIL:
+                    logger.warning(
+                        "Client/permanent error on write, failing immediately without fallback",
+                        backend=backend.name,
+                        operation=operation.value,
+                        error=str(e),
+                    )
+                    raise
+                logger.warning(
+                    "Error on write, trying fallback",
+                    backend=backend.name,
+                    operation=operation.value,
+                    action=action.value,
+                    error=str(e),
+                )
 
         if successful_backend is None or response is None:
             if last_error:

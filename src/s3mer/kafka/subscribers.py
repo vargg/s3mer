@@ -10,6 +10,7 @@ from faststream.kafka.annotations import KafkaMessage
 
 from s3mer.backends.client import S3BackendClient
 from s3mer.backends.pool import BackendPool
+from s3mer.common.errors import ErrorAction, ErrorClassifier
 from s3mer.common.logging import get_logger
 from s3mer.config.settings import ReplicationMode
 from s3mer.kafka.messages import ReplicationMessage
@@ -89,6 +90,16 @@ def _register_batch_subscriber(broker: KafkaBroker, topic: str, pool: BackendPoo
                     target=target_name,
                 )
             except Exception as exc:
+                action = ErrorClassifier.classify(exc)
+                if action == ErrorAction.FAIL:
+                    logger.warning(
+                        "Replication failed permanently due to unrecoverable client error. Skipping target.",
+                        message_id=message.message_id,
+                        target=target_name,
+                        error=str(exc),
+                    )
+                    continue
+
                 logger.exception(
                     "Replication failed",
                     message_id=message.message_id,
@@ -178,6 +189,16 @@ def _register_per_backend_subscriber(
                 target=backend_name,
             )
         except Exception as exc:
+            action = ErrorClassifier.classify(exc)
+            if action == ErrorAction.FAIL:
+                logger.warning(
+                    "Replication failed permanently due to unrecoverable client error. Skipping.",
+                    message_id=message.message_id,
+                    target=backend_name,
+                    error=str(exc),
+                )
+                return
+
             logger.exception(
                 "Replication failed",
                 message_id=message.message_id,
@@ -251,6 +272,17 @@ async def _schedule_global_retry(
                     attempt=attempt,
                 )
             except Exception as exc:
+                action = ErrorClassifier.classify(exc)
+                if action == ErrorAction.FAIL:
+                    logger.warning(
+                        "Background retry: Replication failed permanently due to "
+                        "unrecoverable client error. Skipping target.",
+                        message_id=message.message_id,
+                        target=target_name,
+                        error=str(exc),
+                    )
+                    continue
+
                 logger.exception(
                     "Background retry: Replication failed",
                     message_id=message.message_id,
@@ -321,6 +353,25 @@ async def _schedule_per_backend_retry(
             subscriber.consumer.resume(failed_tp)
             break
         except Exception as exc:
+            action = ErrorClassifier.classify(exc)
+            if action == ErrorAction.FAIL:
+                logger.warning(
+                    "Background retry: Replication failed permanently due to "
+                    "unrecoverable client error. Skipping and resuming partition.",
+                    message_id=message.message_id,
+                    target=target.name,
+                    error=str(exc),
+                )
+                try:
+                    # Seek past the failed message and resume partition
+                    subscriber.consumer.seek(failed_tp, failed_offset + 1)
+                    subscriber.consumer.resume(failed_tp)
+                except Exception as e:
+                    logger.exception("Failed to resume partition. Will retry in next loop.", error=str(e))
+                    attempt += 1
+                    continue
+                break
+
             logger.exception(
                 "Background retry: Replication failed",
                 message_id=message.message_id,
