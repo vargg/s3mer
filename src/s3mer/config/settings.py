@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     backends: list[BackendConfig] = Field(default_factory=list)
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
     log_level: str = Field(default="INFO")
+    replication_mode: Literal["batch", "per_backend"] = Field(
+        default="batch",
+        description="Kafka replication strategy: 'batch' (consolidated) or 'per_backend' (individual).",
+    )
 
     @classmethod
     def settings_customise_sources(

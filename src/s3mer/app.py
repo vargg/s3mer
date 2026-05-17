@@ -12,7 +12,7 @@ from s3mer.common.types import Receive, Scope, Send
 from s3mer.config.settings import load_settings
 from s3mer.handlers.internal import health_handler, metrics_handler
 from s3mer.kafka.broker import create_broker
-from s3mer.kafka.manager import ReplicationManager
+from s3mer.kafka.manager import BatchReplicationManager, PerBackendReplicationManager
 from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.routing.classifier import RequestClassifier
 from s3mer.routing.dispatcher import RequestDispatcher
@@ -55,7 +55,12 @@ class S3ProxyApp:
         self._broker = create_broker(settings.kafka)
         await self._broker.start()
         publisher = ReplicationPublisher(self._broker, settings.kafka.topic)
-        replication_manager = ReplicationManager(publisher, self._metrics)
+
+        # Select replication manager based on configuration
+        if settings.replication_mode == "per_backend":
+            replication_manager = PerBackendReplicationManager(publisher, self._metrics)
+        else:
+            replication_manager = BatchReplicationManager(publisher, self._metrics)
 
         # Strategies
         self._read_strategy = ReadFallbackStrategy()

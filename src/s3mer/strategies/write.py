@@ -10,7 +10,7 @@ from s3mer.backends.pool import BackendPool
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.streaming import BufferedStreamReader
-from s3mer.kafka.manager import ReplicationManager
+from s3mer.kafka.manager import BaseReplicationManager
 from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.routing.operations import S3Operation
 
@@ -24,7 +24,7 @@ class WritePrimaryReplicationStrategy:
     to secondary backends.
     """
 
-    def __init__(self, replication_manager: ReplicationManager, metrics: MetricsTracker) -> None:
+    def __init__(self, replication_manager: BaseReplicationManager, metrics: MetricsTracker) -> None:
         self._replication_manager = replication_manager
         self._metrics = metrics
 
