@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from botocore.exceptions import ClientError
 
 from s3mer.common.metrics import NullMetricsTracker
 from s3mer.routing.operations import S3Operation
@@ -168,3 +169,60 @@ class TestWritePrimaryReplicationStrategy:
         await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k"}, replicate=False)
 
         replication_manager.schedule_replication.assert_not_called()
+
+    async def test_fails_immediately_on_client_error(
+        self,
+        strategy: WritePrimaryReplicationStrategy,
+        replication_manager: AsyncMock,
+    ) -> None:
+        primary = _make_mock_client("primary", is_primary=True)
+        exc = ClientError(
+            error_response={
+                "Error": {"Code": "AccessDenied", "Message": "Access Denied"},
+                "ResponseMetadata": {"HTTPStatusCode": 403},
+            },
+            operation_name="PutObject",
+        )
+        primary.execute.side_effect = exc
+
+        secondary = _make_mock_client("secondary")
+        pool = _make_mock_pool([primary, secondary])
+
+        with pytest.raises(ClientError) as exc_info:
+            await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k"})
+
+        assert exc_info.value.response["Error"]["Code"] == "AccessDenied"
+        primary.execute.assert_called_once()
+        secondary.execute.assert_not_called()
+        replication_manager.schedule_replication.assert_not_called()
+
+    async def test_falls_back_on_server_error_and_replicates_to_primary(
+        self,
+        strategy: WritePrimaryReplicationStrategy,
+        replication_manager: AsyncMock,
+    ) -> None:
+        primary = _make_mock_client("primary", is_primary=True)
+        exc = ClientError(
+            error_response={
+                "Error": {"Code": "InternalError", "Message": "Internal Server Error"},
+                "ResponseMetadata": {"HTTPStatusCode": 500},
+            },
+            operation_name="PutObject",
+        )
+        primary.execute.side_effect = exc
+
+        secondary = _make_mock_client("secondary")
+        secondary.execute.return_value = {"ETag": '"abc123"'}
+        pool = _make_mock_pool([primary, secondary])
+
+        params = {"Bucket": "b", "Key": "k", "Body": b"data"}
+        result = await strategy.execute(S3Operation.PUT_OBJECT, pool, params)
+
+        assert result["ETag"] == '"abc123"'
+        primary.execute.assert_called_once()
+        secondary.execute.assert_called_once()
+
+        replication_manager.schedule_replication.assert_called_once()
+        args = replication_manager.schedule_replication.call_args[1]
+        assert args["source_backend_name"] == "secondary"
+        assert args["target_backend_names"] == ["primary"]
