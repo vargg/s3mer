@@ -50,6 +50,7 @@ S3MER uses **Pydantic-settings** for robust configuration management.
 - **Dependency Injection**: Use `HandlerContext` to access system-level services (like the Metrics Tracker) in S3 handlers.
 - **Explicit Imports**: Use top-level imports. Avoid inline imports unless strictly necessary for avoiding circular dependencies.
 - **Type Safety**: All new code must pass `ty check` with zero errors.
+- **"Make No Mistakes" Diligence**: Prioritize accuracy and absolute correctness over execution speed. Double-check all facts, logic, code syntax, and mental executions, and explicitly call out any uncertainty rather than guessing.
 
 ### How to add a new S3 Operation
 

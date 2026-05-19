@@ -1,8 +1,10 @@
 """Async streaming utilities for proxying S3 object bodies."""
 
+import asyncio
 import tempfile
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from enum import Enum, auto
+from pathlib import Path
 from typing import Any, Self
 
 from s3mer.common.logging import get_logger
@@ -323,3 +325,47 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
         if not chunk:
             raise StopAsyncIteration
         return chunk
+
+
+class ConcurrentFileStream(AsyncIterator[bytes]):
+    """
+    An async iterator that reads from a file on disk.
+    Each instance has its own file handle, allowing concurrent reads.
+    """
+
+    def __init__(self, filepath: str, chunk_size: int = 65536) -> None:
+        self.filepath = filepath
+        self.chunk_size = chunk_size
+        self._file: Any = None
+
+    def _ensure_file(self) -> None:
+        if self._file is None:
+            # Keep the file handle open across generator yields, closed in close()
+            self._file = Path(self.filepath).open("rb")  # noqa: SIM115
+
+    async def read(self, n: int = -1) -> bytes:
+        await asyncio.to_thread(self._ensure_file)
+        return await asyncio.to_thread(self._file.read, n)
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        self._ensure_file()
+        return self._file.seek(offset, whence)
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        self._ensure_file()
+        return self._file.tell()
+
+    async def __anext__(self) -> bytes:
+        chunk = await self.read(self.chunk_size)
+        if not chunk:
+            await self.close()
+            raise StopAsyncIteration
+        return chunk
+
+    async def close(self) -> None:
+        if self._file is not None:
+            await asyncio.to_thread(self._file.close)
+            self._file = None

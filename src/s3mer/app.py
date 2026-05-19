@@ -5,12 +5,16 @@ from http import HTTPStatus
 from typing import Any
 
 from s3mer.backends.pool import BackendPool
-from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
+from s3mer.backends.strategies import (
+    MultiSyncWriteStrategy,
+    ReadFallbackStrategy,
+    WritePrimaryReplicationStrategy,
+)
 from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
 from s3mer.common.types import Receive, Scope, Send
-from s3mer.config.settings import ReplicationMode, load_settings
+from s3mer.config.settings import ReplicationMode, WriteStrategyType, load_settings
 from s3mer.handlers.internal import health_handler, metrics_handler
 from s3mer.kafka.broker import create_broker
 from s3mer.kafka.manager import BatchReplicationManager, PerBackendReplicationManager
@@ -172,10 +176,15 @@ class S3ProxyApp:
         else:
             replication_manager = BatchReplicationManager(publisher, metrics_tracker)
 
+        if settings.write_strategy == WriteStrategyType.MULTI_SYNC:
+            write_strategy: Any = MultiSyncWriteStrategy(metrics_tracker)
+        else:
+            write_strategy = WritePrimaryReplicationStrategy(replication_manager, metrics_tracker)
+
         dispatcher = RequestDispatcher(
             self._pool,
             ReadFallbackStrategy(),
-            WritePrimaryReplicationStrategy(replication_manager, metrics_tracker),
+            write_strategy,
             metrics_tracker,
         )
 

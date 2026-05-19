@@ -3,7 +3,7 @@
 from typing import Any
 
 from s3mer.backends.pool import BackendPool
-from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
+from s3mer.backends.strategies import OperationStrategy, ReadFallbackStrategy
 from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder
@@ -24,7 +24,7 @@ class RequestDispatcher:
         self,
         pool: BackendPool,
         read_strategy: ReadFallbackStrategy,
-        write_strategy: WritePrimaryReplicationStrategy,
+        write_strategy: OperationStrategy,
         metrics: MetricsTracker,
     ) -> None:
         self._pool = pool

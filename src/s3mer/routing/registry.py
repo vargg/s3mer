@@ -6,7 +6,10 @@ from enum import Enum, auto
 from typing import Any
 
 from s3mer.backends.pool import BackendPool
-from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
+from s3mer.backends.strategies import (
+    OperationStrategy,
+    ReadFallbackStrategy,
+)
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.responses import ASGIResponse, ASGIStreamingResponse
 from s3mer.routing.operations import OperationType, S3Operation
@@ -34,7 +37,7 @@ class HandlerContext:
     key: str | None
     pool: BackendPool
     read_strategy: ReadFallbackStrategy
-    write_strategy: WritePrimaryReplicationStrategy
+    write_strategy: OperationStrategy
     metrics: MetricsTracker
     headers: dict[str, str]
     query_string: bytes

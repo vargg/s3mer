@@ -20,6 +20,13 @@ class ReplicationMode(StrEnum):
     PER_BACKEND = "per_backend"
 
 
+class WriteStrategyType(StrEnum):
+    """Write execution strategy style."""
+
+    PRIMARY_REPLICATION = "primary_replication"
+    MULTI_SYNC = "multi_sync"
+
+
 class BackendConfig(BaseModel):
     """Configuration for a single S3-compatible backend."""
 
@@ -92,6 +99,10 @@ class Settings(BaseSettings):
     replication_mode: ReplicationMode = Field(
         default=ReplicationMode.PER_BACKEND,
         description="Kafka replication strategy: 'batch' (consolidated) or 'per_backend' (individual).",
+    )
+    write_strategy: WriteStrategyType = Field(
+        default=WriteStrategyType.PRIMARY_REPLICATION,
+        description="Write strategy mode: 'primary_replication' (default) or 'multi_sync' (concurrent synchronous).",
     )
     stream_chunk_size: int = Field(
         default=65536,
