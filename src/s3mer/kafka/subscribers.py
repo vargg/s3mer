@@ -3,6 +3,7 @@
 import asyncio
 from typing import Any, cast
 
+import structlog
 from aiokafka import ConsumerRecord, TopicPartition
 from botocore.exceptions import ClientError
 from faststream.kafka import KafkaBroker
@@ -81,84 +82,98 @@ def _register_batch_subscriber(
         partition = record.partition
         offset = record.offset
 
-        failed_tp = TopicPartition(topic, partition)
+        # Extract request ID from headers
+        request_id = None
+        if record.headers:
+            for k, v in record.headers:
+                if k == "x-s3mer-request-id":
+                    request_id = v.decode("utf-8") if isinstance(v, bytes) else str(v)
+                    break
 
-        logger.info(
-            "Processing batch replication message",
-            message_id=message.message_id,
-            partition=partition,
-            offset=offset,
-            operation=message.operation,
-            targets=message.target_backends,
-        )
+        if request_id:
+            structlog.contextvars.bind_contextvars(request_id=request_id)
 
-        operation = S3Operation(message.operation)
-        source = pool.get(message.source_backend)
+        try:
+            failed_tp = TopicPartition(topic, partition)
 
-        failed_targets = []
-        last_exc: Exception | None = None
-        for target_name in message.target_backends:
-            target = pool.get(target_name)
-            try:
-                await _replicate_operation(operation, message, source, target)
-                logger.info(
-                    "Replication succeeded",
-                    message_id=message.message_id,
-                    target=target_name,
-                )
-            except Exception as exc:
-                action = ErrorClassifier.classify(exc)
-                if action == ErrorAction.FAIL:
-                    logger.warning(
-                        "Replication failed permanently due to unrecoverable client error. Skipping target.",
+            logger.info(
+                "Processing batch replication message",
+                message_id=message.message_id,
+                partition=partition,
+                offset=offset,
+                operation=message.operation,
+                targets=message.target_backends,
+            )
+
+            operation = S3Operation(message.operation)
+            source = pool.get(message.source_backend)
+
+            failed_targets = []
+            last_exc: Exception | None = None
+            for target_name in message.target_backends:
+                target = pool.get(target_name)
+                try:
+                    await _replicate_operation(operation, message, source, target)
+                    logger.info(
+                        "Replication succeeded",
+                        message_id=message.message_id,
+                        target=target_name,
+                    )
+                except Exception as exc:
+                    action = ErrorClassifier.classify(exc)
+                    if action == ErrorAction.FAIL:
+                        logger.warning(
+                            "Replication failed permanently due to unrecoverable client error. Skipping target.",
+                            message_id=message.message_id,
+                            target=target_name,
+                            error=str(exc),
+                        )
+                        continue
+
+                    logger.exception(
+                        "Replication failed",
                         message_id=message.message_id,
                         target=target_name,
                         error=str(exc),
                     )
-                    continue
+                    failed_targets.append(target_name)
+                    last_exc = exc
 
-                logger.exception(
-                    "Replication failed",
+            if not failed_targets:
+                return
+
+            # Trigger Consumer-Level Pause
+            consumer = subscriber.consumer
+            if consumer:
+                assigned = consumer.assignment()
+                logger.warning(
+                    "Batch replication failed. Pausing all assigned partitions to prevent rebalance storm.",
                     message_id=message.message_id,
-                    target=target_name,
-                    error=str(exc),
-                )
-                failed_targets.append(target_name)
-                last_exc = exc
-
-        if not failed_targets:
-            return
-
-        # Trigger Consumer-Level Pause
-        consumer = subscriber.consumer
-        if consumer:
-            assigned = consumer.assignment()
-            logger.warning(
-                "Batch replication failed. Pausing all assigned partitions to prevent rebalance storm.",
-                message_id=message.message_id,
-                failed_targets=failed_targets,
-                assigned_partitions=[(tp.topic, tp.partition) for tp in assigned],
-            )
-            consumer.pause(*assigned)
-
-            # Start single global retry background task
-            task = asyncio.create_task(
-                _schedule_global_retry(
-                    subscriber=subscriber,
-                    failed_tp=failed_tp,
-                    failed_offset=offset,
-                    assigned_partitions=assigned,
-                    message=message,
-                    operation=operation,
-                    source=source,
                     failed_targets=failed_targets,
-                    pool=pool,
+                    assigned_partitions=[(tp.topic, tp.partition) for tp in assigned],
                 )
-            )
-            _background_tasks.add(task)
-            task.add_done_callback(_background_tasks.discard)
+                consumer.pause(*assigned)
 
-            raise RuntimeError(f"Replication failed for targets {failed_targets}. Consumer paused.") from last_exc
+                # Start single global retry background task
+                task = asyncio.create_task(
+                    _schedule_global_retry(
+                        subscriber=subscriber,
+                        failed_tp=failed_tp,
+                        failed_offset=offset,
+                        assigned_partitions=assigned,
+                        message=message,
+                        operation=operation,
+                        source=source,
+                        failed_targets=failed_targets,
+                        pool=pool,
+                    )
+                )
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
+
+                raise RuntimeError(f"Replication failed for targets {failed_targets}. Consumer paused.") from last_exc
+        finally:
+            structlog.contextvars.clear_contextvars()
 
 
 def _register_per_backend_subscriber(
@@ -185,74 +200,88 @@ def _register_per_backend_subscriber(
         partition = record.partition
         offset = record.offset
 
-        failed_tp = TopicPartition(topic, partition)
+        # Extract request ID from headers
+        request_id = None
+        if record.headers:
+            for k, v in record.headers:
+                if k == "x-s3mer-request-id":
+                    request_id = v.decode("utf-8") if isinstance(v, bytes) else str(v)
+                    break
 
-        logger.info(
-            "Processing per-backend replication message",
-            message_id=message.message_id,
-            partition=partition,
-            offset=offset,
-            operation=message.operation,
-            target=backend_name,
-        )
-
-        operation = S3Operation(message.operation)
-        source = pool.get(message.source_backend)
-        target = pool.get(backend_name)
+        if request_id:
+            structlog.contextvars.bind_contextvars(request_id=request_id)
 
         try:
-            await _replicate_operation(operation, message, source, target)
+            failed_tp = TopicPartition(topic, partition)
+
             logger.info(
-                "Replication succeeded",
+                "Processing per-backend replication message",
                 message_id=message.message_id,
+                partition=partition,
+                offset=offset,
+                operation=message.operation,
                 target=backend_name,
             )
-        except Exception as exc:
-            action = ErrorClassifier.classify(exc)
-            if action == ErrorAction.FAIL:
-                logger.warning(
-                    "Replication failed permanently due to unrecoverable client error. Skipping.",
+
+            operation = S3Operation(message.operation)
+            source = pool.get(message.source_backend)
+            target = pool.get(backend_name)
+
+            try:
+                await _replicate_operation(operation, message, source, target)
+                logger.info(
+                    "Replication succeeded",
+                    message_id=message.message_id,
+                    target=backend_name,
+                )
+            except Exception as exc:
+                action = ErrorClassifier.classify(exc)
+                if action == ErrorAction.FAIL:
+                    logger.warning(
+                        "Replication failed permanently due to unrecoverable client error. Skipping.",
+                        message_id=message.message_id,
+                        target=backend_name,
+                        error=str(exc),
+                    )
+                    return
+
+                logger.exception(
+                    "Replication failed",
                     message_id=message.message_id,
                     target=backend_name,
                     error=str(exc),
                 )
-                return
 
-            logger.exception(
-                "Replication failed",
-                message_id=message.message_id,
-                target=backend_name,
-                error=str(exc),
-            )
-
-            # Trigger Per-Backend Pause (only pause this partition)
-            consumer = subscriber.consumer
-            if consumer:
-                logger.warning(
-                    "Per-backend replication failed. Pausing partition.",
-                    message_id=message.message_id,
-                    target=backend_name,
-                    partition=partition,
-                    offset=offset,
-                )
-                consumer.pause(failed_tp)
-
-                # Start per-backend background retry task
-                task = asyncio.create_task(
-                    _schedule_per_backend_retry(
-                        subscriber=subscriber,
-                        failed_tp=failed_tp,
-                        failed_offset=offset,
-                        message=message,
-                        operation=operation,
-                        source=source,
-                        target=target,
+                # Trigger Per-Backend Pause (only pause this partition)
+                consumer = subscriber.consumer
+                if consumer:
+                    logger.warning(
+                        "Per-backend replication failed. Pausing partition.",
+                        message_id=message.message_id,
+                        target=backend_name,
+                        partition=partition,
+                        offset=offset,
                     )
-                )
-                _background_tasks.add(task)
-                task.add_done_callback(_background_tasks.discard)
+                    consumer.pause(failed_tp)
 
-                raise RuntimeError(f"Replication failed for target {backend_name}. Partition paused.") from exc
+                    # Start per-backend background retry task
+                    task = asyncio.create_task(
+                        _schedule_per_backend_retry(
+                            subscriber=subscriber,
+                            failed_tp=failed_tp,
+                            failed_offset=offset,
+                            message=message,
+                            operation=operation,
+                            source=source,
+                            target=target,
+                        )
+                    )
+                    _background_tasks.add(task)
+                    task.add_done_callback(_background_tasks.discard)
+
+                    raise RuntimeError(f"Replication failed for target {backend_name}. Partition paused.") from exc
+        finally:
+            structlog.contextvars.clear_contextvars()
 
 
 async def _schedule_global_retry(

@@ -1,8 +1,12 @@
 """Pure ASGI application that proxies S3 requests to configured backends."""
 
 import time
+import uuid
+from collections.abc import MutableMapping
 from http import HTTPStatus
 from typing import Any
+
+import structlog
 
 from s3mer.backends.pool import BackendPool
 from s3mer.backends.strategies import (
@@ -13,6 +17,7 @@ from s3mer.backends.strategies import (
 from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
+from s3mer.common.responses import ASGIResponse
 from s3mer.common.types import Receive, Scope, Send
 from s3mer.config.settings import ReplicationMode, WriteStrategyType, load_settings
 from s3mer.handlers.internal import health_handler, metrics_handler
@@ -38,7 +43,7 @@ class S3HTTPHandler:
         self._dispatcher = dispatcher
         self._metrics_tracker = metrics_tracker
 
-    async def _handle_internal_routes(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def _handle_internal_routes(self, scope: Scope, receive: Receive, send: Send, request_id: str) -> None:
         """Handle internal service endpoints (metrics, health, etc.)."""
         method = scope["method"]
         path = scope["path"]
@@ -55,7 +60,9 @@ class S3HTTPHandler:
             error_code=S3Errors.ACCESS_DENIED,
             resource=path,
             message="Unknown internal endpoint",
+            request_id=request_id,
         ).to_response()
+        response.extra_headers["x-s3mer-request-id"] = request_id
         await response(scope, receive, send)
 
     async def _classify_request(
@@ -67,6 +74,7 @@ class S3HTTPHandler:
         path: str,
         query_string: bytes,
         headers: dict[str, str],
+        request_id: str,
     ) -> tuple[S3Request | None, int | None]:
         """Classify the incoming request, returning the S3Request object and status code."""
         try:
@@ -75,29 +83,74 @@ class S3HTTPHandler:
             response = S3ErrorResponse(
                 error_code=S3Errors.METHOD_NOT_ALLOWED,
                 resource=path,
+                request_id=request_id,
             ).to_response()
+            response.extra_headers["x-s3mer-request-id"] = request_id
             status_code = getattr(response, "status_code", 405)
             await response(scope, receive, send)
             return None, status_code
         else:
             return s3_req, None
 
+    async def _dispatch_request(
+        self,
+        s3_req: S3Request,
+        receive: Receive,
+        headers: dict[str, str],
+        query_string: bytes,
+        request_id: str,
+        path: str,
+    ) -> ASGIResponse:
+        """Dispatch the S3 request using the dispatcher or handle errors."""
+        if self._dispatcher is None:
+            return S3ErrorResponse(
+                error_code=S3Errors.INTERNAL_ERROR,
+                message="Proxy not initialized",
+                request_id=request_id,
+            ).to_response()
+        try:
+            return await self._dispatcher.dispatch(s3_req, receive, headers, query_string)
+        except Exception as exc:
+            logger.exception("Unhandled error in S3 proxy", error=str(exc))
+            err_resp = S3ErrorResponse.from_client_error(exc, resource=path)
+            err_resp.request_id = request_id
+            return err_resp.to_response()
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Handle an HTTP request by classifying and dispatching it."""
         path = scope["path"]
 
+        # Parse headers into a dict
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+
+        # Resolve or generate Request ID
+        request_id = headers.get("x-s3mer-request-id")
+        if not request_id:
+            request_id = str(uuid.uuid4())
+        scope["s3mer.request_id"] = request_id
+
+        # Bind to structlog contextvars
+        structlog.contextvars.bind_contextvars(request_id=request_id)
+
+        # Define wrapped_send to guarantee request_id propagation in headers
+        async def wrapped_send(event: MutableMapping[str, Any]) -> None:
+            if event.get("type") == "http.response.start":
+                event_headers = list(event.get("headers", []))
+                if not any(k.lower() == b"x-s3mer-request-id" for k, _ in event_headers):
+                    event_headers.append((b"x-s3mer-request-id", request_id.encode("latin-1")))
+                event["headers"] = event_headers
+            await send(event)
+
         # Fast-path for internal service endpoints
         if path.startswith("/.internal/"):
-            await self._handle_internal_routes(scope, receive, send)
+            try:
+                await self._handle_internal_routes(scope, receive, wrapped_send, request_id)
+            finally:
+                structlog.contextvars.clear_contextvars()
             return
 
         method = scope["method"]
         query_string = scope.get("query_string", b"")
-
-        # Parse headers into a dict
-        headers: dict[str, str] = {}
-        for name_bytes, value_bytes in scope.get("headers", []):
-            headers[name_bytes.decode("latin-1").lower()] = value_bytes.decode("latin-1")
 
         start_time = time.perf_counter()
         operation_name = "unknown"
@@ -106,7 +159,7 @@ class S3HTTPHandler:
         try:
             # 1. Classify
             s3_req, status_code = await self._classify_request(
-                scope, receive, send, method, path, query_string, headers
+                scope, receive, wrapped_send, method, path, query_string, headers, request_id
             )
             if s3_req is None:
                 return
@@ -115,17 +168,11 @@ class S3HTTPHandler:
             scope["s3mer.operation"] = operation_name
 
             # 2. Dispatch
-            if self._dispatcher is None:
-                response = S3ErrorResponse(
-                    error_code=S3Errors.INTERNAL_ERROR,
-                    message="Proxy not initialized",
-                ).to_response()
-            else:
-                try:
-                    response = await self._dispatcher.dispatch(s3_req, receive, headers, query_string)
-                except Exception as exc:
-                    logger.exception("Unhandled error in S3 proxy", error=str(exc))
-                    response = S3ErrorResponse.from_client_error(exc, resource=path).to_response()
+            response = await self._dispatch_request(s3_req, receive, headers, query_string, request_id, path)
+
+            # Ensure response has the request ID header
+            if hasattr(response, "extra_headers"):
+                response.extra_headers["x-s3mer-request-id"] = request_id
 
             # 3. Connection management for failures during body reads
             if (
@@ -144,12 +191,13 @@ class S3HTTPHandler:
             if hasattr(response, "on_bytes_sent"):
                 response.on_bytes_sent = record_out_bytes
 
-            await response(scope, receive, send)
+            await response(scope, receive, wrapped_send)
         finally:
             duration = time.perf_counter() - start_time
             self._metrics_tracker.record_request(
                 method=method, operation=operation_name, status=status_code or 500, duration=duration
             )
+            structlog.contextvars.clear_contextvars()
 
 
 class S3ProxyApp:

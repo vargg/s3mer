@@ -1,6 +1,6 @@
 from http import HTTPStatus
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 
@@ -22,7 +22,7 @@ async def test_internal_routing_metrics() -> None:
         # Accessing private member for testing purposes
         await app(scope, receive, send)
 
-        mock_metrics.assert_called_once_with(scope, receive, send)
+        mock_metrics.assert_called_once_with(scope, receive, ANY)
 
 
 @pytest.mark.asyncio
@@ -35,7 +35,7 @@ async def test_internal_routing_health() -> None:
 
         await app(scope, receive, send)
 
-        mock_health.assert_called_once_with(scope, receive, send)
+        mock_health.assert_called_once_with(scope, receive, ANY)
 
 
 @pytest.mark.asyncio

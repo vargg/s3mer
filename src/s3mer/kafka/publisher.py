@@ -1,5 +1,6 @@
 """Replication message publisher — thin wrapper around FastStream publisher."""
 
+import structlog
 from faststream.kafka import KafkaBroker
 
 from s3mer.common.logging import get_logger
@@ -40,10 +41,16 @@ class ReplicationPublisher:
 
         target_topic = topic or self._topic
 
+        headers = {}
+        request_id = structlog.contextvars.get_contextvars().get("request_id")
+        if request_id:
+            headers["x-s3mer-request-id"] = request_id
+
         await self._broker.publish(
             message=message.model_dump_json(),
             topic=target_topic,
             key=partition_key.encode(),
+            headers=headers,
         )
 
         logger.debug(

@@ -3,9 +3,9 @@
 This document tracks planned improvements for making S3MER production-ready, based on the architectural review.
 
 ## 1. Traceability & Observability
-- [ ] **Request ID Propagation**: Generate a unique `X-S3MER-Request-ID` for every incoming request.
-- [ ] **Unified Logging**: Inject Request ID into all `structlog` contexts (Proxy and Worker).
-- [ ] **Kafka Headers**: Pass the Request ID in Kafka message headers to correlate proxy requests with replication tasks.
+- [x] **Request ID Propagation**: Generate a unique `X-S3MER-Request-ID` for every incoming request.
+- [x] **Unified Logging**: Inject Request ID into all `structlog` contexts (Proxy and Worker).
+- [x] **Kafka Headers**: Pass the Request ID in Kafka message headers to correlate proxy requests with replication tasks.
 
 ## 2. Robust Error Handling
 - [x] **Granular Error Classifier**: Implement a utility to map `botocore` error codes (e.g., `429`, `503`, `InternalError`) to specific behaviors: `RETRY`, `FALLBACK`, or `FAIL`.
