@@ -13,37 +13,34 @@ from s3mer.routing.operations import S3Operation
 
 
 @pytest.fixture
-def configs() -> list[BackendConfig]:
-    return [
-        BackendConfig(
-            name="primary",
+def configs() -> dict[str, BackendConfig]:
+    return {
+        "primary": BackendConfig(
             endpoint_url="http://localhost:9000",
             access_key="key",
             secret_key=SecretStr("secret"),
             is_primary=True,
             priority=0,
         ),
-        BackendConfig(
-            name="secondary_slow",
+        "secondary_slow": BackendConfig(
             endpoint_url="http://localhost:9002",
             access_key="key",
             secret_key=SecretStr("secret"),
             is_primary=False,
             priority=2,
         ),
-        BackendConfig(
-            name="secondary_fast",
+        "secondary_fast": BackendConfig(
             endpoint_url="http://localhost:9003",
             access_key="key",
             secret_key=SecretStr("secret"),
             is_primary=False,
             priority=1,
         ),
-    ]
+    }
 
 
 @pytest.mark.asyncio
-async def test_latency_prober_measuring(configs: list[BackendConfig]) -> None:
+async def test_latency_prober_measuring(configs: dict[str, BackendConfig]) -> None:
     # Set probe interval extremely short for testing
     pool = BackendPool(configs, NullMetricsTracker(), probe_interval=0.01)
 
@@ -86,7 +83,7 @@ async def test_latency_prober_measuring(configs: list[BackendConfig]) -> None:
 
 
 @pytest.mark.asyncio
-async def test_latency_prober_error_handling(configs: list[BackendConfig]) -> None:
+async def test_latency_prober_error_handling(configs: dict[str, BackendConfig]) -> None:
     pool = BackendPool(configs, NullMetricsTracker(), probe_interval=0.01)
 
     # Patch S3BackendClient methods at class level to raise exceptions safely
@@ -113,7 +110,7 @@ async def test_latency_prober_error_handling(configs: list[BackendConfig]) -> No
 
 
 @pytest.mark.asyncio
-async def test_backend_pool_all_by_latency(configs: list[BackendConfig]) -> None:
+async def test_backend_pool_all_by_latency(configs: dict[str, BackendConfig]) -> None:
     pool = BackendPool(configs, NullMetricsTracker())
 
     primary = pool.primary

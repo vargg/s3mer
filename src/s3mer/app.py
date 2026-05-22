@@ -248,7 +248,7 @@ class S3ProxyApp:
         setup_logging(settings.log_level)
 
         log = get_logger("s3mer.startup")
-        log.info("Starting s3mer proxy", backends=[b.name for b in settings.backends])
+        log.info("Starting s3mer proxy", backends=list(settings.backends.keys()))
 
         await self._pool.start()
         await self._broker.start()

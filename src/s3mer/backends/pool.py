@@ -19,16 +19,16 @@ class BackendPool:
 
     def __init__(
         self,
-        configs: list[BackendConfig],
+        configs: dict[str, BackendConfig],
         metrics: MetricsTracker,
         probe_interval: float = 10.0,
     ) -> None:
         self._clients: dict[str, S3BackendClient] = {}
         self._primary: S3BackendClient | None = None
 
-        for cfg in configs:
-            client = S3BackendClient(cfg, metrics)
-            self._clients[cfg.name] = client
+        for name, cfg in configs.items():
+            client = S3BackendClient(name, cfg, metrics)
+            self._clients[name] = client
             if cfg.is_primary:
                 self._primary = client
 

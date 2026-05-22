@@ -101,7 +101,8 @@ S3MER uses **Pydantic-settings** (`config/settings.py`). Example: `config/settin
 
 - **YAML**: `config/settings.yaml` by default.
 - **Environment**: Overrides via `S3MER_` prefix and `__` nesting (e.g. `S3MER_LOG_LEVEL=DEBUG`, `S3MER_KAFKA__BOOTSTRAP_SERVERS`).
-- **Validation**: Exactly one `is_primary: true` backend; unique backend `name` values.
+- **Backends map**: `backends` is a **dict keyed by backend name** (not a list). Per-field vault injection works, e.g. `S3MER_BACKENDS__primary__SECRET_KEY`.
+- **Validation**: Exactly one `is_primary: true` backend.
 
 | Key | Default | Role |
 |-----|---------|------|

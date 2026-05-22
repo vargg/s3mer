@@ -1,5 +1,10 @@
 # s3mer proxy configuration
 # Copy to config/settings.yaml and adjust values
+#
+# Backends are a map keyed by logical name. Override a single field via env, e.g.:
+#   S3MER_BACKENDS__primary__SECRET_KEY
+#   S3MER_BACKENDS__primary__ACCESS_KEY
+#   S3MER_BACKENDS__secondary__ENDPOINT_URL
 
 log_level: INFO
 
@@ -8,7 +13,7 @@ stream_chunk_size: 65536                  # Chunk size (in bytes) for proxy pipi
 max_memory_stream_buffer_size: 10485760   # Maximum memory buffer (in bytes) before spooling to disk (default 10MB)
 
 backends:
-  - name: primary
+  primary:
     endpoint_url: http://localhost:9000
     region: us-east-1
     access_key: minioadmin
@@ -21,7 +26,7 @@ backends:
     read_timeout: 30                      # Read timeout in seconds
     max_attempts: 3                       # S3 API retry attempts
 
-  - name: secondary
+  secondary:
     endpoint_url: http://localhost:9002
     region: us-east-1
     access_key: minioadmin
@@ -29,10 +34,10 @@ backends:
     is_primary: false
     addressing_style: path
     priority: 1
-    max_pool_connections: 15              # Max concurrent connection pool size
-    connect_timeout: 10                   # Connect timeout in seconds
-    read_timeout: 30                      # Read timeout in seconds
-    max_attempts: 3                       # S3 API retry attempts
+    max_pool_connections: 15
+    connect_timeout: 10
+    read_timeout: 30
+    max_attempts: 3
 
 kafka:
   bootstrap_servers:

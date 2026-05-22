@@ -47,7 +47,14 @@ services:
     environment:
       S3MER_LOG_LEVEL: info
       S3MER_KAFKA__BOOTSTRAP_SERVERS: '["kafka:9092"]'
-      S3MER_BACKENDS: '[{"name": "primary", "endpoint_url": "http://minio-primary:9000", "access_key": "minioadmin", "secret_key": "minioadmin", "is_primary": true}, {"name": "secondary", "endpoint_url": "http://minio-secondary:9000", "access_key": "minioadmin", "secret_key": "minioadmin"}]'
+      S3MER_BACKENDS__primary__ENDPOINT_URL: http://minio-primary:9000
+      S3MER_BACKENDS__primary__ACCESS_KEY: minioadmin
+      S3MER_BACKENDS__primary__SECRET_KEY: minioadmin
+      S3MER_BACKENDS__primary__IS_PRIMARY: "true"
+      S3MER_BACKENDS__secondary__ENDPOINT_URL: http://minio-secondary:9000
+      S3MER_BACKENDS__secondary__ACCESS_KEY: minioadmin
+      S3MER_BACKENDS__secondary__SECRET_KEY: minioadmin
+      S3MER_BACKENDS__secondary__IS_PRIMARY: "false"
     depends_on:
       minio-primary:
         condition: service_healthy
@@ -71,7 +78,14 @@ services:
     environment:
       S3MER_LOG_LEVEL: info
       S3MER_KAFKA__BOOTSTRAP_SERVERS: '["kafka:9092"]'
-      S3MER_BACKENDS: '[{"name": "primary", "endpoint_url": "http://minio-primary:9000", "access_key": "minioadmin", "secret_key": "minioadmin", "is_primary": true}, {"name": "secondary", "endpoint_url": "http://minio-secondary:9000", "access_key": "minioadmin", "secret_key": "minioadmin"}]'
+      S3MER_BACKENDS__primary__ENDPOINT_URL: http://minio-primary:9000
+      S3MER_BACKENDS__primary__ACCESS_KEY: minioadmin
+      S3MER_BACKENDS__primary__SECRET_KEY: minioadmin
+      S3MER_BACKENDS__primary__IS_PRIMARY: "true"
+      S3MER_BACKENDS__secondary__ENDPOINT_URL: http://minio-secondary:9000
+      S3MER_BACKENDS__secondary__ACCESS_KEY: minioadmin
+      S3MER_BACKENDS__secondary__SECRET_KEY: minioadmin
+      S3MER_BACKENDS__secondary__IS_PRIMARY: "false"
     depends_on:
       kafka:
         condition: service_started

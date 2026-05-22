@@ -1,0 +1,10 @@
+# Local secrets and overrides — use settings.example.yaml in the image
+config/settings.yaml
+
+.venv/
+.git/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+.DS_Store

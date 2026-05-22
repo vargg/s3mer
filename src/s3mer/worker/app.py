@@ -40,7 +40,7 @@ def create_worker_app() -> FastStream:
 
     @app.on_startup
     async def startup() -> None:
-        logger.info("Starting s3mer worker", backends=[b.name for b in settings.backends])
+        logger.info("Starting s3mer worker", backends=list(settings.backends.keys()))
         await pool.start()
         logger.info("s3mer worker ready")
 

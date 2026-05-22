@@ -2,9 +2,9 @@
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Self
+from typing import Self
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -28,21 +28,20 @@ class WriteStrategyType(StrEnum):
 
 
 class BackendConfig(BaseModel):
-    """Configuration for a single S3-compatible backend."""
+    """Configuration for a single S3-compatible backend (keyed by name in Settings.backends)."""
 
-    name: str = Field(description="Logical name, e.g. 'primary', 'replica-eu'")
     endpoint_url: str = Field(description="S3 endpoint URL")
     region: str = Field(default="us-east-1", description="AWS region")
     access_key: str = Field(description="AWS access key ID")
     secret_key: SecretStr = Field(description="AWS secret access key")
     is_primary: bool = Field(default=False, description="Exactly one backend must be primary")
-    addressing_style: Literal["path", "virtual"] = Field(
+    addressing_style: str = Field(
         default="path",
-        description="S3 addressing style",
+        description="S3 addressing style: path or virtual",
     )
     priority: int = Field(
         default=0,
-        description="Read priority — lower values are tried first",
+        description="Read priority — lower values are tried first among secondaries",
     )
     max_pool_connections: int = Field(
         default=10,
@@ -60,6 +59,13 @@ class BackendConfig(BaseModel):
         default=2,
         description="Max S3 API retries",
     )
+
+    @field_validator("addressing_style")
+    @classmethod
+    def validate_addressing_style(cls, value: str) -> str:
+        if value not in ("path", "virtual"):
+            raise ValueError(f"addressing_style must be 'path' or 'virtual', got: {value!r}")
+        return value
 
 
 class KafkaConfig(BaseModel):
@@ -93,7 +99,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    backends: list[BackendConfig] = Field(default_factory=list)
+    backends: dict[str, BackendConfig] = Field(
+        default_factory=dict,
+        description="S3 backends keyed by logical name (e.g. primary, eu-west)",
+    )
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
     log_level: str = Field(default="INFO")
     replication_mode: ReplicationMode = Field(
@@ -141,17 +150,11 @@ class Settings(BaseSettings):
         if not self.backends:
             return self
 
-        primaries = [b for b in self.backends if b.is_primary]
+        primaries = [name for name, cfg in self.backends.items() if cfg.is_primary]
         if len(primaries) == 0:
             raise ValueError("At least one backend must have is_primary=True")
         if len(primaries) > 1:
-            names = [b.name for b in primaries]
-            raise ValueError(f"Exactly one primary backend allowed, got: {names}")
-
-        # Ensure unique names
-        names = [b.name for b in self.backends]
-        if len(names) != len(set(names)):
-            raise ValueError(f"Backend names must be unique, got: {names}")
+            raise ValueError(f"Exactly one primary backend allowed, got: {primaries}")
 
         return self
 

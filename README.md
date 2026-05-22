@@ -127,7 +127,16 @@ Point your S3 client at the proxy endpoint (path-style), using credentials from 
 
 ## Configuration
 
-Settings use **Pydantic-settings**: `config/settings.yaml` by default, overridden with `S3MER_` environment variables (nested keys use `__`, e.g. `S3MER_KAFKA__BOOTSTRAP_SERVERS`).
+Settings use **Pydantic-settings**: `config/settings.yaml` by default, overridden with `S3MER_` environment variables (nested keys use `__`).
+
+Backends are a **map keyed by name** (not a list), so credentials can be injected per backend from a vault:
+
+```bash
+export S3MER_BACKENDS__primary__SECRET_KEY="..."
+export S3MER_BACKENDS__primary__ACCESS_KEY="..."
+```
+
+See [`config/settings.example.yaml`](config/settings.example.yaml).
 
 | Setting | Default | Description |
 |---------|---------|-------------|

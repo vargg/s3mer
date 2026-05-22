@@ -21,9 +21,9 @@ class S3BackendClient:
     S3 operations against a specific backend.
     """
 
-    def __init__(self, config: BackendConfig, metrics: MetricsTracker) -> None:
+    def __init__(self, name: str, config: BackendConfig, metrics: MetricsTracker) -> None:
+        self.name = name
         self.config = config
-        self.name = config.name
         self.is_primary = config.is_primary
         self.priority = config.priority
         self._metrics = metrics

@@ -21,6 +21,9 @@ RUN uv sync --frozen
 
 # --- Test stage ---
 FROM builder AS test
+
+# Default config for containers (dict-shaped backends; override via S3MER_* env)
+RUN cp config/settings.example.yaml config/settings.yaml
 # This stage can be used to run pytest
 CMD ["uv", "run", "pytest"]
 
