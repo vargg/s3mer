@@ -5,21 +5,38 @@
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Type Checked: ty](https://img.shields.io/badge/type%20checked-ty-brightgreen.svg)](https://github.com/astral-sh/ty)
 
-S3MER is a premium, high-performance, asynchronous S3 proxy designed to act as a consistent multi-backend storage bridge. It combines low-overhead, memory-efficient streaming proxying with a "Zero-Touch" background replication architecture driven by Apache Kafka.
+S3MER is an asynchronous S3 proxy that provides **geo-reservation / cross-region durability** when your S3 provider does not offer geo-replication. Writes land on one **primary** region synchronously; other regions are filled asynchronously via Kafka and a background worker (**Zero-Touch** replication).
+
+Cross-region consistency is **eventual**. For deployment assumptions, client retry rules, and contributor guidance, see [AGENTS.md](AGENTS.md). For roadmap priorities, see [TODO.md](TODO.md).
 
 ---
 
-## ⚡ Core Highlights
+## What it is for
 
-- **Pure Async ASGI Architecture**: Built on a modern ASGI stack optimized for high concurrency, low latency, and memory-efficient streaming of huge objects.
-- **Zero-Touch Replication**: Offloads high-overhead replication operations to decoupled background workers using Apache Kafka and FastStream, minimizing proxy processing time.
-- **Unified Backend Client & Strategies**: Implements cohesive, declarative Execution Strategies for high-availability read failover (read priority fallback) and resilient writes (sync-to-primary with replayable fallbacks).
-- **SigV4 Chunked Decoding**: Direct streaming support for `aws-chunked` transfer encodings, allowing large objects to be unwrapped and forwarded on-the-fly without in-memory buffering.
-- **Observability Built-in**: Full operational visibility with Prometheus metrics integration (latency, throughput, replication fan-out) and internal operational health endpoints.
+| Problem | How S3MER helps |
+|--------|------------------|
+| Provider has no cross-region replication | Proxy + worker copy objects and bucket metadata to additional S3-compatible backends |
+| Need low-latency writes in one region | Primary synchronous write; replication off the hot path |
+| Large objects | Streaming `PutObject` / multipart; geo copy after object is complete |
+
+Typical usage: **write once, read a few times**, lifecycle-based expiry (tags/prefixes), optional multipart for large files. Orphaned or incomplete uploads can be handled by your own detection and bucket lifecycle.
 
 ---
 
-## 🗺️ Architectural Flow
+## Core highlights
+
+- **Pure async ASGI** — path-style S3 proxy (`/bucket/key`) with declarative handler routing.
+- **Primary write + Kafka replication** — `WritePrimaryReplicationStrategy` (default); optional `multi_sync` for single-instance synchronous multi-backend writes.
+- **Write fallback** — on retryable primary failure, tries other backends; successful backend becomes the replication source.
+- **Read fallback** — primary first, then secondaries ordered by latency probing.
+- **Zero-Touch worker** — e.g. `CompleteMultipartUpload` / `CopyObject` replicate as `PUT_OBJECT` from the source backend; tagging/lifecycle/policy use state-sync from source.
+- **SigV4 chunked uploads** — `aws-chunked` decoded on the fly; bodies spooled to memory/disk only when replay is needed for fallback.
+- **Observability** — Prometheus metrics, request IDs, `/.internal/health` and `/.internal/metrics`.
+- **Worker resilience** — pause–seek–resume with backoff (no separate DLQ topic).
+
+---
+
+## Architectural flow
 
 ```mermaid
 graph TD
@@ -33,63 +50,69 @@ graph TD
 
     Proxy -->|2. Publish Task| Kafka[Kafka Replication Queue]
 
-    subgraph Decoupled Event-Driven Path
+    subgraph Event-Driven Path
         Kafka -->|3. Consume Event| Worker[Replication Worker]
-        Worker -->|4. Async Replay| Secondary[Secondary S3 Backend]
+        Worker -->|4. Async PUT / state-sync| Secondary[Other S3 Backends]
     end
-
-    style SynchronousPath fill:#f9f,stroke:#333,stroke-width:1px
-    style DecoupledEvent-DrivenPath fill:#bbf,stroke:#333,stroke-width:1px
 ```
 
 ---
 
-## 🚀 Getting Started
+## Client contract (important)
+
+For writes through the proxy:
+
+1. S3MER writes to the primary (or the next backend on retryable failure), then publishes a replication task to Kafka.
+2. If Kafka publish fails, the proxy returns **non-2xx** even if the primary already has the object.
+3. The client **must retry** with the **same object key** (`PUT` overwrite is idempotent).
+4. Only **2xx** counts as success; retry timeouts and ambiguous responses.
+
+**Multipart:** geo replication runs after successful **`CompleteMultipartUpload`** only. In-flight multipart is **single-backend**—if upload fails mid-session, start a **new** multipart (new `UploadId`) or use `PutObject`; do not expect transparent resume on another backend. Details: [AGENTS.md — Multipart uploads](AGENTS.md#multipart-uploads).
+
+---
+
+## Getting started
 
 ### Prerequisites
 
-Make sure you have the following installed on your system:
 - **Python 3.12+**
-- [**uv**](https://github.com/astral-sh/uv) (fast Python package installer and resolver)
-- **Docker** and **Docker Compose** (for running the integration test environment and backing services)
+- [**uv**](https://github.com/astral-sh/uv)
+- **Docker** and **Docker Compose** (integration tests and local stack)
 
 ### Installation
 
-1. Clone this repository and navigate to the root directory:
-   ```bash
-   git clone https://github.com/vargg/s3mer.git
-   cd s3mer
-   ```
+```bash
+git clone https://github.com/vargg/s3mer.git
+cd s3mer
+uv venv
+uv sync
+cp config/settings.example.yaml config/settings.yaml   # adjust backends and Kafka
+```
 
-2. Initialize the virtual environment and install dependencies:
-   ```bash
-   uv venv
-   uv sync
-   ```
+### Run locally
 
-### Running S3MER
+**1. Dependencies** (MinIO ×2, Kafka, Kafka UI):
 
-S3MER requires external services (S3 backends and Apache Kafka) to be running before launching the proxy server and the background replication worker.
-
-#### 1. Start External Dependencies (Docker Compose)
-We provide a standard `docker-compose.yml` that boots up MinIO for the Primary and Secondary S3 storage, Kafka as the event broker, and a Kafka UI for monitoring:
 ```bash
 docker compose up -d
 ```
-Once started, the following services are available:
-- **Primary S3 Console**: [http://localhost:9001](http://localhost:9001) (Credentials: `minioadmin` / `minioadmin`)
-- **Secondary S3 Console**: [http://localhost:9003](http://localhost:9003) (Credentials: `minioadmin` / `minioadmin`)
-- **Kafka UI**: [http://localhost:8080](http://localhost:8080) (for topic and replication task monitoring)
 
-#### 2. Start the S3 Proxy Server
-Launch the main S3 proxy web server running on port `8000`:
+| Service | URL |
+|---------|-----|
+| Primary S3 console | http://localhost:9001 (`minioadmin` / `minioadmin`) |
+| Secondary S3 console | http://localhost:9003 |
+| Kafka UI | http://localhost:8080 |
+
+**2. S3 proxy** (port 8000):
+
 ```bash
 uv run uvicorn s3mer.app:app --host 0.0.0.0 --port 8000
 ```
-The S3 proxy will handle incoming client requests, synchronously write data to the Primary S3 backend, and then publish an asynchronous replication event.
 
-#### 3. Start the Decoupled Replication Worker
-Launch the FastStream Kafka consumer to process replication tasks asynchronously in the background:
+Or: `uv run python -m s3mer`
+
+**3. Replication worker:**
+
 ```bash
 uv run python -m s3mer.worker.app
 ```
@@ -98,46 +121,56 @@ uv run python -m s3mer.worker.app
 uv run faststream run s3mer.worker.app:worker_app
 ```
 
----
-
-## ⚙️ Configuration
-
-S3MER is configured using robust Pydantic-settings. By default, it loads properties from `config/settings.yaml`. You can override any property using environment variables prefixed with `S3MER_`.
-
-### Example Configuration (`config/settings.example.yaml`)
+Point your S3 client at the proxy endpoint (path-style), using credentials from `config/settings.yaml`.
 
 ---
 
-## 🛠️ Development & Quality Gates
+## Configuration
 
-S3MER enforces high code quality through rigorous linting, type-safety checks, and comprehensive test suites. All tasks are simplified using the provided `Makefile`.
+Settings use **Pydantic-settings**: `config/settings.yaml` by default, overridden with `S3MER_` environment variables (nested keys use `__`, e.g. `S3MER_KAFKA__BOOTSTRAP_SERVERS`).
 
-### 1. Code Formatting & Linting
-We use **Ruff** for PEP-8 compliance and imports formatting, and **ty** for strict type checking.
-```bash
-make lint
-```
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `write_strategy` | `primary_replication` | `primary_replication` or `multi_sync` |
+| `replication_mode` | `per_backend` | `per_backend` (recommended) or `batch` |
+| `stream_chunk_size` | `65536` | Proxy stream chunk size (bytes) |
+| `max_memory_stream_buffer_size` | `10485760` | Spool threshold before disk (bytes) |
+| `latency_probe_interval_seconds` | `30` | Backend latency probe interval |
 
-### 2. Running Unit Tests
-Unit tests use mocks and local testing structures to validate dispatcher routing, classifier refinement, strategies, and XML serializers:
-```bash
-make test-unit
-```
+Example file: [`config/settings.example.yaml`](config/settings.example.yaml).
 
-### 3. Running E2E Integration Suite
-The E2E test suite boots up active S3 backends (MinIO) and Kafka brokers inside Docker containers to test the complete event-driven proxy and background replication flow:
-```bash
-make test
-```
-
-### 4. Cleanup the Test Environment
-Shutdown running docker compose services and purge test caches:
-```bash
-make clean
-```
+**Geo deployment defaults:** `primary_replication` + `per_backend`. Monitor replication lag and worker retries after successful client writes.
 
 ---
 
-## 🗺️ Roadmap & Operational Goals
+## Supported S3 API (summary)
 
-For planned enhancements and architectural reliability milestones (like the Transactional Outbox/Write-Ahead Log, Active Anti-Entropy Reconciliation, Health Probing, and Versioning support), please refer to [TODO.md](file:///Users/username/dev/s3m/TODO.md).
+Bucket and object operations including lifecycle, policy, tagging, multipart, and `aws-chunked` `PutObject`. Full list and handler registration notes: [AGENTS.md](AGENTS.md#supported-s3-api-operations).
+
+---
+
+## Development
+
+```bash
+make lint        # ruff format, ruff check, ty check
+make test-unit   # unit tests
+make test        # E2E (Docker Compose)
+make clean       # tear down test stack and caches
+```
+
+Unit tests only: `uv run pytest tests/unit`
+
+---
+
+## Documentation
+
+| Document | Audience |
+|----------|----------|
+| [AGENTS.md](AGENTS.md) | Architecture, deployment model, dev rules, API notes |
+| [TODO.md](TODO.md) | Roadmap and deferred vs active reliability work |
+
+---
+
+## License
+
+MIT (see repository badge).
