@@ -1,5 +1,6 @@
 """Unit-test fixtures — isolate tests from local config/settings.yaml."""
 
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -33,7 +34,7 @@ def test_settings() -> Settings:
 
 
 @pytest.fixture(autouse=True)
-def mock_load_settings(test_settings: Settings) -> None:
+def mock_load_settings(test_settings: Settings) -> Iterator[None]:
     """Prevent S3ProxyApp/worker from loading developer settings.yaml during unit tests."""
     with (
         patch("s3mer.config.settings.load_settings", return_value=test_settings),

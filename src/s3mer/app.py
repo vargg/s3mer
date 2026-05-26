@@ -245,7 +245,7 @@ class S3ProxyApp:
     async def startup(self) -> None:
         """Initialize all components. Called once by the ASGI server."""
         settings = load_settings()
-        setup_logging(settings.log_level)
+        setup_logging(settings.log_level, settings.log_file)
 
         log = get_logger("s3mer.startup")
         log.info("Starting s3mer proxy", backends=list(settings.backends.keys()))

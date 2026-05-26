@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     )
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
     log_level: str = Field(default="INFO")
+    log_file: str | None = Field(
+        default=None,
+        description="Optional file path to output structured JSON logs",
+    )
     replication_mode: ReplicationMode = Field(
         default=ReplicationMode.PER_BACKEND,
         description="Kafka replication strategy: 'batch' (consolidated) or 'per_backend' (individual).",

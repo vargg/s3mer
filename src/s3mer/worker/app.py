@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 def create_worker_app() -> FastStream:
     """Create the FastStream worker application."""
     settings = load_settings()
-    setup_logging(settings.log_level)
+    setup_logging(settings.log_level, settings.log_file)
 
     metrics = get_tracker()
     broker = create_broker(settings.kafka)

@@ -7,6 +7,7 @@
 #   S3MER_BACKENDS__secondary__ENDPOINT_URL
 
 log_level: INFO
+log_file: null                            # Optional: write structured JSON logs to this file path
 
 # Global streaming defaults
 stream_chunk_size: 65536                  # Chunk size (in bytes) for proxy piping (default 64KB)
