@@ -55,6 +55,7 @@ ignore = ["ANN401", "BLE001", "COM812", "C901", "D", "EM", "FBT", "TRY003", "PLR
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "SLF001"]
 "tests/e2e/*.py" = ["S310"]
+"scripts/**/*.py" = ["T201", "S311", "E501", "PLR2004", "PLR0915", "PLR0912", "EXE001"]
 
 [tool.ty.environment]
 python-version = "3.12"
