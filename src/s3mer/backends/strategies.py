@@ -13,7 +13,7 @@ from s3mer.backends.pool import BackendPool
 from s3mer.common.errors import ErrorAction, ErrorClassifier
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
-from s3mer.common.streaming import BufferedStreamReader, ConcurrentFileStream, get_chunk_size
+from s3mer.common.streaming import BufferedStreamReader, ConcurrentFileStream, get_buffer_dir, get_chunk_size
 from s3mer.kafka.manager import BaseReplicationManager
 from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.routing.operations import S3Operation
@@ -235,7 +235,7 @@ class MultiSyncWriteStrategy:
         if not body or not isinstance(body, AsyncIterator):
             return None
 
-        temp_fd, temp_file_path = tempfile.mkstemp(prefix="s3mer_multisync_")
+        temp_fd, temp_file_path = tempfile.mkstemp(prefix="s3mer_multisync_", dir=get_buffer_dir())
         os.close(temp_fd)
 
         # Open the file via asyncio.to_thread to avoid blocking async main thread

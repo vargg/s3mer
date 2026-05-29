@@ -31,6 +31,14 @@ def get_max_memory_size() -> int:
         return 10 * 1024 * 1024
 
 
+def get_buffer_dir() -> str | None:
+    """Get the temporary file buffer directory from configuration, or None for system default."""
+    try:
+        return load_settings().buffer_dir
+    except Exception:
+        return None
+
+
 # Default chunk size: 64 KB — good balance between throughput and memory
 DEFAULT_CHUNK_SIZE = 65_536
 
@@ -69,12 +77,19 @@ class BufferedStreamReader(AsyncIterator[bytes]):
         reader: AsyncIterator[bytes],
         metrics: MetricsTracker,
         max_memory_size: int | None = None,
+        buffer_dir: str | None = None,
     ) -> None:
         if max_memory_size is None:
             max_memory_size = get_max_memory_size()
+        if buffer_dir is None:
+            buffer_dir = get_buffer_dir()
         self.reader = reader
         self._metrics = metrics
-        self._tmp_file = tempfile.SpooledTemporaryFile(max_size=max_memory_size, mode="w+b")  # noqa: SIM115
+        self._tmp_file = tempfile.SpooledTemporaryFile(  # noqa: SIM115
+            max_size=max_memory_size,
+            mode="w+b",
+            dir=buffer_dir,
+        )
         self._read_from_tmp = False
         self._eof_reached = False
         self._chunk_size = get_chunk_size()
