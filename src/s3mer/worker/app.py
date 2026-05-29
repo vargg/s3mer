@@ -2,19 +2,20 @@
 
 import asyncio
 
-from faststream import FastStream
+from faststream.asgi import AsgiFastStream
 
 from s3mer.backends.pool import BackendPool
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
 from s3mer.config.settings import load_settings
+from s3mer.handlers.internal import health_handler, metrics_handler
 from s3mer.kafka.broker import create_broker
 from s3mer.kafka.subscribers import register_subscribers
 
 logger = get_logger(__name__)
 
 
-def create_worker_app() -> FastStream:
+def create_worker_app() -> AsgiFastStream:
     """Create the FastStream worker application."""
     settings = load_settings()
     setup_logging(settings.log_level, settings.log_file)
@@ -35,7 +36,13 @@ def create_worker_app() -> FastStream:
         settings.kafka,
     )
 
-    app = FastStream(broker)
+    app = AsgiFastStream(
+        broker,
+        asgi_routes=[
+            ("/.internal/metrics", metrics_handler),
+            ("/.internal/health", health_handler),
+        ],
+    )
 
     @app.on_startup
     async def startup() -> None:
@@ -56,4 +63,12 @@ worker_app = create_worker_app()
 
 
 if __name__ == "__main__":
-    asyncio.run(worker_app.run())
+    settings = load_settings()
+    asyncio.run(
+        worker_app.run(
+            run_extra_options={
+                "host": settings.worker.host,
+                "port": settings.worker.port,
+            }
+        )
+    )

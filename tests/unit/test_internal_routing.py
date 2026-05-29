@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import ANY, AsyncMock, MagicMock
 
 from s3mer.routing.http_handler import S3HTTPHandler
+from s3mer.worker.app import worker_app
 
 if TYPE_CHECKING:
     from s3mer.common.types import Receive, Scope, Send
@@ -60,3 +61,27 @@ async def test_internal_routing_unknown() -> None:
     start_call = send.call_args_list[0][0][0]
     assert start_call["type"] == "http.response.start"
     assert start_call["status"] == HTTPStatus.FORBIDDEN
+
+
+async def test_worker_internal_health() -> None:
+    scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/health", "headers": []}
+    receive: Receive = AsyncMock()
+    send: Send = AsyncMock()
+
+    await worker_app(scope, receive, send)
+
+    start_call = send.call_args_list[0][0][0]
+    assert start_call["type"] == "http.response.start"
+    assert start_call["status"] == HTTPStatus.OK
+
+
+async def test_worker_internal_metrics() -> None:
+    scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/metrics", "headers": []}
+    receive: Receive = AsyncMock()
+    send: Send = AsyncMock()
+
+    await worker_app(scope, receive, send)
+
+    start_call = send.call_args_list[0][0][0]
+    assert start_call["type"] == "http.response.start"
+    assert start_call["status"] == HTTPStatus.OK

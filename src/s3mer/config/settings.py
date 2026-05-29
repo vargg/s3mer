@@ -106,6 +106,13 @@ class KafkaConfig(BaseModel):
     )
 
 
+class WorkerConfig(BaseModel):
+    """Configuration for the background replication worker."""
+
+    host: str = Field(default="0.0.0.0", description="Host to bind the worker HTTP server to")  # noqa: S104
+    port: int = Field(default=8010, description="Port to bind the worker HTTP server to")
+
+
 class Settings(BaseSettings):
     """Root application settings."""
 
@@ -122,6 +129,7 @@ class Settings(BaseSettings):
         description="S3 backends keyed by logical name (e.g. primary, eu-west)",
     )
     kafka: KafkaConfig = Field(default_factory=KafkaConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
     log_level: str = Field(default="INFO")
     log_file: str | None = Field(
         default=None,

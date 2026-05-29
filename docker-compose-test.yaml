@@ -86,6 +86,13 @@ services:
       S3MER_BACKENDS__secondary__ACCESS_KEY: minioadmin
       S3MER_BACKENDS__secondary__SECRET_KEY: minioadmin
       S3MER_BACKENDS__secondary__IS_PRIMARY: "false"
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/.internal/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     depends_on:
       kafka:
         condition: service_started
@@ -107,4 +114,4 @@ services:
       s3mer-proxy:
         condition: service_healthy
       s3mer-worker:
-        condition: service_started
+        condition: service_healthy
