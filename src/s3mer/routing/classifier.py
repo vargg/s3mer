@@ -17,6 +17,24 @@ class S3Request:
     key: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _RefinementRule:
+    """Declarative rule for refining a base S3 operation based on query params or headers."""
+
+    refined_op: S3Operation
+    query_key: str | None = None
+    header_key: str | None = None
+    extra_query_key: str | None = None
+
+    def matches(self, query: dict[str, str], headers: dict[str, str] | None) -> bool:
+        """Return True if this rule's conditions are satisfied by the request."""
+        if self.query_key is not None and self.query_key not in query:
+            return False
+        if self.extra_query_key is not None and self.extra_query_key not in query:
+            return False
+        return not (self.header_key is not None and (headers is None or self.header_key not in headers))
+
+
 class RequestClassifier:
     """
     Classifies HTTP requests into S3 operations using fast path-style routing.
@@ -57,6 +75,37 @@ class RequestClassifier:
         },
     }
 
+    # Refinement table: base_op → ordered rules (first match wins).
+    # Adding a new S3 sub-operation = one line here.
+    _REFINEMENT_TABLE: ClassVar[dict[S3Operation, tuple[_RefinementRule, ...]]] = {
+        S3Operation.PUT_OBJECT: (
+            _RefinementRule(S3Operation.PUT_OBJECT_TAGGING, query_key="tagging"),
+            _RefinementRule(S3Operation.UPLOAD_PART, query_key="partNumber", extra_query_key="uploadId"),
+            _RefinementRule(S3Operation.COPY_OBJECT, header_key="x-amz-copy-source"),
+        ),
+        S3Operation.POST_OBJECT: (
+            _RefinementRule(S3Operation.CREATE_MULTIPART_UPLOAD, query_key="uploads"),
+            _RefinementRule(S3Operation.COMPLETE_MULTIPART_UPLOAD, query_key="uploadId"),
+        ),
+        S3Operation.GET_OBJECT: (_RefinementRule(S3Operation.GET_OBJECT_TAGGING, query_key="tagging"),),
+        S3Operation.DELETE_OBJECT: (
+            _RefinementRule(S3Operation.DELETE_OBJECT_TAGGING, query_key="tagging"),
+            _RefinementRule(S3Operation.ABORT_MULTIPART_UPLOAD, query_key="uploadId"),
+        ),
+        S3Operation.LIST_OBJECTS_V2: (
+            _RefinementRule(S3Operation.GET_BUCKET_LIFECYCLE, query_key="lifecycle"),
+            _RefinementRule(S3Operation.GET_BUCKET_POLICY, query_key="policy"),
+        ),
+        S3Operation.CREATE_BUCKET: (
+            _RefinementRule(S3Operation.PUT_BUCKET_LIFECYCLE, query_key="lifecycle"),
+            _RefinementRule(S3Operation.PUT_BUCKET_POLICY, query_key="policy"),
+        ),
+        S3Operation.DELETE_BUCKET: (
+            _RefinementRule(S3Operation.DELETE_BUCKET_LIFECYCLE, query_key="lifecycle"),
+            _RefinementRule(S3Operation.DELETE_BUCKET_POLICY, query_key="policy"),
+        ),
+    }
+
     def classify(
         self, method: str, path: str, query_string: bytes = b"", headers: dict[str, str] | None = None
     ) -> S3Request:
@@ -93,70 +142,26 @@ class RequestClassifier:
         key = parts[1] if len(parts) > 1 else None
         return bucket, key
 
-    def _refine_operation(  # noqa: PLR0912 - Centralized dispatch for request refinement
+    def _refine_operation(
         self, base_op: S3Operation, query: dict[str, str], headers: dict[str, str] | None, path: str
     ) -> S3Operation:
-        """Dispatch to specialized refinement logic based on the base operation's method."""
-        match base_op:
-            case S3Operation.PUT_OBJECT:
-                return self._refine_put(query, headers)
-            case S3Operation.POST_OBJECT:
-                return self._refine_post(query, path)
-            case S3Operation.GET_OBJECT:
-                return self._refine_get(query)
-            case S3Operation.DELETE_OBJECT:
-                return self._refine_delete(query)
-            case S3Operation.DELETE_OBJECTS:
-                if "delete" not in query:
-                    raise ValueError(f"Cannot classify POST request without 'delete' query param: {path}")
-                return base_op
-            case S3Operation.LIST_OBJECTS_V2:
-                if "lifecycle" in query:
-                    return S3Operation.GET_BUCKET_LIFECYCLE
-                if "policy" in query:
-                    return S3Operation.GET_BUCKET_POLICY
-                if "list-type" not in query or query["list-type"] != "2":
-                    return S3Operation.LIST_OBJECTS
-                return base_op
-            case S3Operation.CREATE_BUCKET:
-                if "lifecycle" in query:
-                    return S3Operation.PUT_BUCKET_LIFECYCLE
-                if "policy" in query:
-                    return S3Operation.PUT_BUCKET_POLICY
-                return base_op
-            case S3Operation.DELETE_BUCKET:
-                if "lifecycle" in query:
-                    return S3Operation.DELETE_BUCKET_LIFECYCLE
-                if "policy" in query:
-                    return S3Operation.DELETE_BUCKET_POLICY
-                return base_op
-            case _:
-                return base_op
+        """Refine base operation using the declarative refinement table."""
+        rules = self._REFINEMENT_TABLE.get(base_op)
+        if rules:
+            for rule in rules:
+                if rule.matches(query, headers):
+                    return rule.refined_op
 
-    def _refine_put(self, query: dict[str, str], headers: dict[str, str] | None) -> S3Operation:
-        if "tagging" in query:
-            return S3Operation.PUT_OBJECT_TAGGING
-        if "partNumber" in query and "uploadId" in query:
-            return S3Operation.UPLOAD_PART
-        if headers and "x-amz-copy-source" in headers:
-            return S3Operation.COPY_OBJECT
-        return S3Operation.PUT_OBJECT
+        # Validation: POST at object depth requires ?uploads or ?uploadId
+        if base_op == S3Operation.POST_OBJECT:
+            raise ValueError(f"Cannot classify POST request without uploads or uploadId: {path}")
 
-    def _refine_post(self, query: dict[str, str], path: str) -> S3Operation:
-        if "uploads" in query:
-            return S3Operation.CREATE_MULTIPART_UPLOAD
-        if "uploadId" in query:
-            return S3Operation.COMPLETE_MULTIPART_UPLOAD
-        raise ValueError(f"Cannot classify POST request without uploads or uploadId: {path}")
+        # Validation: POST at bucket depth requires ?delete
+        if base_op == S3Operation.DELETE_OBJECTS and "delete" not in query:
+            raise ValueError(f"Cannot classify POST request without 'delete' query param: {path}")
 
-    def _refine_get(self, query: dict[str, str]) -> S3Operation:
-        if "tagging" in query:
-            return S3Operation.GET_OBJECT_TAGGING
-        return S3Operation.GET_OBJECT
+        # GET /bucket without ?list-type=2 → ListObjects V1
+        if base_op == S3Operation.LIST_OBJECTS_V2 and query.get("list-type") != "2":
+            return S3Operation.LIST_OBJECTS
 
-    def _refine_delete(self, query: dict[str, str]) -> S3Operation:
-        if "tagging" in query:
-            return S3Operation.DELETE_OBJECT_TAGGING
-        if "uploadId" in query:
-            return S3Operation.ABORT_MULTIPART_UPLOAD
-        return S3Operation.DELETE_OBJECT
+        return base_op
