@@ -39,6 +39,7 @@ class S3BackendClient:
             region_name=self.config.region,
             aws_access_key_id=self.config.access_key,
             aws_secret_access_key=self.config.secret_key.get_secret_value(),
+            verify=self.config.verify,
             config=AioConfig(
                 s3={"addressing_style": self.config.addressing_style, "payload_signing_enabled": False},
                 request_checksum_calculation="when_required",

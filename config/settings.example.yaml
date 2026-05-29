@@ -26,6 +26,7 @@ backends:
     connect_timeout: 10                   # Connect timeout in seconds
     read_timeout: 30                      # Read timeout in seconds
     max_attempts: 3                       # S3 API retry attempts
+    verify: true
 
   secondary:
     endpoint_url: http://localhost:9002
@@ -39,6 +40,7 @@ backends:
     connect_timeout: 10
     read_timeout: 30
     max_attempts: 3
+    verify: true
 
 kafka:
   bootstrap_servers:

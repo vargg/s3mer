@@ -93,6 +93,55 @@ class TestBackendsDictConfig:
         assert settings.backends["primary"].secret_key.get_secret_value() == "vault-secret"
         assert settings.backends["secondary"].secret_key.get_secret_value() == "file-secret"
 
+    def test_verify_parsing(self) -> None:
+        # Boolean
+        settings = Settings.model_validate(
+            {
+                "backends": {
+                    "primary": {
+                        "endpoint_url": "http://primary:9000",
+                        "access_key": "a",
+                        "secret_key": "s",
+                        "is_primary": True,
+                        "verify": False,
+                    }
+                }
+            }
+        )
+        assert settings.backends["primary"].verify is False
+
+        # Boolean string True/False
+        settings = Settings.model_validate(
+            {
+                "backends": {
+                    "primary": {
+                        "endpoint_url": "http://primary:9000",
+                        "access_key": "a",
+                        "secret_key": "s",
+                        "is_primary": True,
+                        "verify": "false",
+                    }
+                }
+            }
+        )
+        assert settings.backends["primary"].verify is False
+
+        # Path string
+        settings = Settings.model_validate(
+            {
+                "backends": {
+                    "primary": {
+                        "endpoint_url": "http://primary:9000",
+                        "access_key": "a",
+                        "secret_key": "s",
+                        "is_primary": True,
+                        "verify": "/path/to/ca",
+                    }
+                }
+            }
+        )
+        assert settings.backends["primary"].verify == "/path/to/ca"
+
 
 class TestKafkaConfig:
     def test_bootstrap_servers_list(self) -> None:

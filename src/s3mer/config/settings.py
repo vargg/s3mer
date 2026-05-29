@@ -60,12 +60,27 @@ class BackendConfig(BaseModel):
         default=2,
         description="Max S3 API retries",
     )
+    verify: bool | str = Field(
+        default=False,
+        description="SSL certificate verification: True/False/path-to-CA-bundle",
+    )
 
     @field_validator("addressing_style")
     @classmethod
     def validate_addressing_style(cls, value: str) -> str:
         if value not in ("path", "virtual"):
             raise ValueError(f"addressing_style must be 'path' or 'virtual', got: {value!r}")
+        return value
+
+    @field_validator("verify", mode="before")
+    @classmethod
+    def parse_verify(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            val_lower = value.strip().lower()
+            if val_lower in ("true", "1", "yes", "on"):
+                return True
+            if val_lower in ("false", "0", "no", "off"):
+                return False
         return value
 
 
