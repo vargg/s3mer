@@ -92,3 +92,35 @@ class TestBackendsDictConfig:
         settings = Settings()
         assert settings.backends["primary"].secret_key.get_secret_value() == "vault-secret"
         assert settings.backends["secondary"].secret_key.get_secret_value() == "file-secret"
+
+
+class TestKafkaConfig:
+    def test_bootstrap_servers_list(self) -> None:
+        settings = Settings.model_validate(
+            {
+                "kafka": {
+                    "bootstrap_servers": ["kafka1:9092", "kafka2:9092"],
+                }
+            }
+        )
+        assert settings.kafka.bootstrap_servers == ["kafka1:9092", "kafka2:9092"]
+
+    def test_bootstrap_servers_comma_separated(self) -> None:
+        settings = Settings.model_validate(
+            {
+                "kafka": {
+                    "bootstrap_servers": "kafka1:9092, kafka2:9092 ,kafka3:9092",
+                }
+            }
+        )
+        assert settings.kafka.bootstrap_servers == ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
+
+    def test_bootstrap_servers_json_array(self) -> None:
+        settings = Settings.model_validate(
+            {
+                "kafka": {
+                    "bootstrap_servers": '["kafka1:9092", "kafka2:9092"]',
+                }
+            }
+        )
+        assert settings.kafka.bootstrap_servers == ["kafka1:9092", "kafka2:9092"]

@@ -1,8 +1,9 @@
 """Application settings loaded from YAML / environment variables."""
 
+import json
 from enum import StrEnum
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
@@ -74,6 +75,23 @@ class KafkaConfig(BaseModel):
     bootstrap_servers: list[str] = Field(default=["localhost:9092"])
     topic: str = Field(default="s3mer.replication")
     consumer_group: str = Field(default="s3mer-workers")
+
+    @field_validator("bootstrap_servers", mode="before")
+    @classmethod
+    def parse_bootstrap_servers(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            value = value.strip()
+            # Try parsing as a JSON array (e.g. '["kafka1:9092"]')
+            if value.startswith("[") and value.endswith("]"):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed]
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
     concurrency: int = Field(
         default=1,
         description="Number of parallel workers/consumers per process",
