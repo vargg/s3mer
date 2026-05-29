@@ -47,7 +47,6 @@ class RequestDispatcher:
                 message=f"Operation {request.operation} not implemented",
             ).to_response()
 
-        # Object-level check: ensure key is present for object operations
         if metadata.is_object_op and request.key is None:
             return S3ErrorResponse(
                 error_code=S3Errors.NO_SUCH_KEY,
@@ -55,7 +54,6 @@ class RequestDispatcher:
                 resource=f"/{request.bucket}",
             ).to_response()
 
-        # 1. Prepare body based on BodyStyle
         body: Any = None
         content_length: int | None = None
 
@@ -64,7 +62,6 @@ class RequestDispatcher:
         elif metadata.body_style == BodyStyle.BUFFERED:
             body = await self._read_body(receive, request.operation.value)
 
-        # 2. Construct context
         ctx = HandlerContext(
             operation=request.operation,
             bucket=request.bucket or "",
@@ -79,10 +76,7 @@ class RequestDispatcher:
             content_length=content_length,
         )
 
-        # 3. Call handler
         return await metadata.func(ctx)
-
-    # --- Helpers ---
 
     def _prepare_streaming_body(
         self, receive: Receive, headers: dict[str, str], operation_name: str

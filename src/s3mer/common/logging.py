@@ -28,14 +28,12 @@ def setup_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
 
     root_logger = logging.getLogger()
 
-    # Remove existing handlers to avoid duplicate logging
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
 
     level = getattr(logging, log_level.upper(), logging.INFO)
     root_logger.setLevel(level)
 
-    # 1. Console Handler (always outputs to stderr, colors=False)
     console_handler = logging.StreamHandler(sys.stderr)
     console_formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=shared_processors,
@@ -45,7 +43,6 @@ def setup_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
     console_handler.setLevel(level)
     root_logger.addHandler(console_handler)
 
-    # 2. Optional File Handler (outputs JSON to log_file)
     if log_file:
         file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_formatter = structlog.stdlib.ProcessorFormatter(

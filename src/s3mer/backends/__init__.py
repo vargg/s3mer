@@ -9,11 +9,11 @@ from s3mer.backends.strategies import (
     WritePrimaryReplicationStrategy,
 )
 
-__all__ = [
+__all__ = (
     "BackendPool",
     "MultiSyncWriteStrategy",
     "OperationStrategy",
     "ReadFallbackStrategy",
     "S3BackendClient",
     "WritePrimaryReplicationStrategy",
-]
+)

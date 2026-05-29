@@ -56,8 +56,6 @@ class NullMetricsTracker:
     def record_active_stream_readers(self, count_delta: int) -> None: ...
 
 
-# --- Internal Prometheus Primitives ---
-
 _HTTP_REQUESTS_TOTAL = Counter(
     "s3mer_http_requests_total",
     "Total HTTP requests to the S3 proxy",
@@ -140,12 +138,12 @@ class PrometheusMetricsTracker(MetricsTracker):
             _ACTIVE_STREAM_READERS.dec(abs(count_delta))
 
 
-# --- Singleton Instance ---
-# While we prefer injection, having a default singleton simplifies some migrations
-# and allows for easier access in top-level app construction.
-_global_tracker = PrometheusMetricsTracker()
+_global_tracker: PrometheusMetricsTracker | None = None
 
 
 def get_tracker() -> MetricsTracker:
     """Get the global metrics tracker instance."""
+    global _global_tracker  # noqa: PLW0603
+    if _global_tracker is None:
+        _global_tracker = PrometheusMetricsTracker()
     return _global_tracker

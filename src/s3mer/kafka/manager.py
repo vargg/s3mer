@@ -100,16 +100,11 @@ class BatchReplicationManager(BaseReplicationManager):
         if not target_backend_names:
             return
 
-        # 1. Map complex operations to simple replication tasks
         target_operation = self._map_operation(operation)
-
-        # 2. Extract keys for fan-out (e.g., DeleteObjects)
         keys_to_replicate = self._extract_keys(operation, params, response)
 
-        # Track fan-out amplification
         self._metrics.record_replication_fanout(operation.value, len(keys_to_replicate))
 
-        # 3. Build metadata from response
         metadata = self._build_metadata(params, response)
 
         logger.debug(
@@ -120,7 +115,6 @@ class BatchReplicationManager(BaseReplicationManager):
             targets=target_backend_names,
         )
 
-        # 4. Generate and publish messages
         for key in keys_to_replicate:
             msg = ReplicationMessage(
                 operation=target_operation,
@@ -131,7 +125,6 @@ class BatchReplicationManager(BaseReplicationManager):
                 metadata=metadata,
             )
 
-            # Track individual tasks
             for target in target_backend_names:
                 self._metrics.record_replication_task(target_operation, target)
 
@@ -166,16 +159,11 @@ class PerBackendReplicationManager(BaseReplicationManager):
         if not target_backend_names:
             return
 
-        # 1. Map complex operations to simple replication tasks
         target_operation = self._map_operation(operation)
-
-        # 2. Extract keys for fan-out (e.g., DeleteObjects)
         keys_to_replicate = self._extract_keys(operation, params, response)
 
-        # Track fan-out amplification
         self._metrics.record_replication_fanout(operation.value, len(keys_to_replicate))
 
-        # 3. Build metadata from response
         metadata = self._build_metadata(params, response)
 
         logger.debug(
@@ -186,7 +174,6 @@ class PerBackendReplicationManager(BaseReplicationManager):
             targets=target_backend_names,
         )
 
-        # 4. Generate and publish messages (one per backend, per key)
         for key in keys_to_replicate:
             for target in target_backend_names:
                 msg = ReplicationMessage(
@@ -194,7 +181,7 @@ class PerBackendReplicationManager(BaseReplicationManager):
                     bucket=params["Bucket"],
                     key=key,
                     source_backend=source_backend_name,
-                    target_backends=[target],  # Single target!
+                    target_backends=[target],
                     metadata=metadata,
                 )
 

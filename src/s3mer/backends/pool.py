@@ -32,7 +32,6 @@ class BackendPool:
             if cfg.is_primary:
                 self._primary = client
 
-        # Delegate background latency probing to a dedicated prober class
         self._prober = LatencyProber(list(self._clients.values()), probe_interval)
 
     async def start(self) -> None:

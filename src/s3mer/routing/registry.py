@@ -45,7 +45,6 @@ class HandlerContext:
     content_length: int | None = None
 
 
-# Type for the handler function
 type HandlerFunc = Callable[[HandlerContext], Coroutine[Any, Any, ASGIResponse | ASGIStreamingResponse]]
 
 
@@ -97,6 +96,5 @@ class HandlerRegistry:
         return self._handlers
 
 
-# Global registry instance
 registry = HandlerRegistry()
 s3_handler = registry.register

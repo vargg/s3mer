@@ -143,7 +143,6 @@ def _xml_escape(text: str) -> str:
     )
 
 
-# HTTP Status Constants to avoid magic values (PLR2004)
 HTTP_CLIENT_ERROR_MIN = 400
 HTTP_SERVER_ERROR_MIN = 500
 
@@ -170,7 +169,6 @@ class ErrorClassifier:
         - TimeoutError, aiohttp.ClientError, BotoCoreError, ConnectionError, OSError: RETRY
         - All other exceptions: FALLBACK (unhandled system errors)
         """
-        # 1. Handle botocore ClientError
         if isinstance(exc, ClientError):
             response = getattr(exc, "response", None)
             if not isinstance(response, dict):
@@ -178,27 +176,21 @@ class ErrorClassifier:
 
             status_code = response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
 
-            # Handle explicit rate limit status codes
             if status_code in (HTTPStatus.TOO_MANY_REQUESTS, HTTPStatus.SERVICE_UNAVAILABLE):
                 return ErrorAction.RETRY
 
-            # S3 specific error codes that are transient rate limits
             error_code = response.get("Error", {}).get("Code", "")
             if error_code in ("RequestLimitExceeded", "SlowDown", "RequestTimeout", "Throttling"):
                 return ErrorAction.RETRY
 
-            # Server-side 5xx status codes
             if status_code >= HTTP_SERVER_ERROR_MIN:
                 return ErrorAction.FALLBACK
 
-            # Client-side 4xx status codes are permanent errors
             if HTTP_CLIENT_ERROR_MIN <= status_code < HTTP_SERVER_ERROR_MIN:
                 return ErrorAction.FAIL
 
-            # Fallback for other status codes (e.g. 0 or unknown)
             return ErrorAction.FAIL
 
-        # 2. Handle network connection, timeouts, and system socket errors
         if isinstance(
             exc,
             (
@@ -212,5 +204,4 @@ class ErrorClassifier:
         ):
             return ErrorAction.RETRY
 
-        # 3. All other unexpected exceptions are unhandled system/server issues
         return ErrorAction.FALLBACK

@@ -27,7 +27,6 @@ def create_worker_app() -> FastStream:
         settings.latency_probe_interval_seconds,
     )
 
-    # Register the replication subscriber
     register_subscribers(
         broker,
         settings.kafka.topic,

@@ -27,7 +27,6 @@ class ReplicationDelayConfig:
     max_retry_delay: float = 60.0
 
 
-# Keep strong references to background tasks to prevent garbage collection (RUF006)
 _background_tasks: set[asyncio.Task[Any]] = set()
 
 
@@ -82,7 +81,6 @@ def _register_batch_subscriber(
         partition = record.partition
         offset = record.offset
 
-        # Extract request ID from headers
         request_id = None
         if record.headers:
             for k, v in record.headers:
@@ -142,7 +140,6 @@ def _register_batch_subscriber(
             if not failed_targets:
                 return
 
-            # Trigger Consumer-Level Pause
             consumer = subscriber.consumer
             if consumer:
                 assigned = consumer.assignment()
@@ -154,7 +151,6 @@ def _register_batch_subscriber(
                 )
                 consumer.pause(*assigned)
 
-                # Start single global retry background task
                 task = asyncio.create_task(
                     _schedule_global_retry(
                         subscriber=subscriber,
@@ -200,7 +196,6 @@ def _register_per_backend_subscriber(
         partition = record.partition
         offset = record.offset
 
-        # Extract request ID from headers
         request_id = None
         if record.headers:
             for k, v in record.headers:
@@ -252,7 +247,6 @@ def _register_per_backend_subscriber(
                     error=str(exc),
                 )
 
-                # Trigger Per-Backend Pause (only pause this partition)
                 consumer = subscriber.consumer
                 if consumer:
                     logger.warning(
@@ -264,7 +258,6 @@ def _register_per_backend_subscriber(
                     )
                     consumer.pause(failed_tp)
 
-                    # Start per-backend background retry task
                     task = asyncio.create_task(
                         _schedule_per_backend_retry(
                             subscriber=subscriber,
@@ -351,9 +344,7 @@ async def _schedule_global_retry(
                 offset=failed_offset,
             )
             try:
-                # Seek the failed partition back to the failed offset
                 subscriber.consumer.seek(failed_tp, failed_offset)
-                # Resume all assigned partitions
                 subscriber.consumer.resume(*assigned_partitions)
             except Exception as e:
                 logger.exception(
@@ -401,9 +392,7 @@ async def _schedule_per_backend_retry(
                 target=target.name,
                 attempt=attempt,
             )
-            # Seek consumer back to failed offset
             subscriber.consumer.seek(failed_tp, failed_offset)
-            # Resume only this partition
             subscriber.consumer.resume(failed_tp)
             break
         except Exception as exc:
@@ -417,7 +406,6 @@ async def _schedule_per_backend_retry(
                     error=str(exc),
                 )
                 try:
-                    # Seek past the failed message and resume partition
                     subscriber.consumer.seek(failed_tp, failed_offset + 1)
                     subscriber.consumer.resume(failed_tp)
                 except Exception as e:
@@ -450,7 +438,6 @@ async def _replicate_operation(  # noqa: PLR0912, PLR0915 - Centralized match di
     """
     match operation:
         case S3Operation.PUT_OBJECT:
-            # Read from source, stream to target
             try:
                 get_response = await source.execute(
                     S3Operation.GET_OBJECT,
@@ -477,15 +464,12 @@ async def _replicate_operation(  # noqa: PLR0912, PLR0915 - Centralized match di
                 "Body": body,
             }
 
-            # Preserve metadata from the message
             if "ContentType" in message.metadata:
                 put_params["ContentType"] = message.metadata["ContentType"]
 
             # ContentLength is mandatory for streaming PutObject.
-            # If it's missing from the message (e.g. multipart), fetch it from source.
             content_length = message.metadata.get("ContentLength")
             if content_length is None:
-                # HEAD object on source to get exact size
                 try:
                     head_resp = await source.execute(
                         S3Operation.HEAD_OBJECT,
@@ -528,7 +512,6 @@ async def _replicate_operation(  # noqa: PLR0912, PLR0915 - Centralized match di
             )
 
         case S3Operation.PUT_OBJECT_TAGGING:
-            # Fetch current tagging from source and apply to target
             try:
                 tag_response = await source.execute(
                     S3Operation.GET_OBJECT_TAGGING,
@@ -561,7 +544,6 @@ async def _replicate_operation(  # noqa: PLR0912, PLR0915 - Centralized match di
             )
 
         case S3Operation.PUT_BUCKET_LIFECYCLE:
-            # Fetch current lifecycle configuration from source and apply to target
             try:
                 lifecycle_resp = await source.execute(
                     S3Operation.GET_BUCKET_LIFECYCLE,
@@ -603,7 +585,6 @@ async def _replicate_operation(  # noqa: PLR0912, PLR0915 - Centralized match di
                 raise
 
         case S3Operation.PUT_BUCKET_POLICY:
-            # Fetch current policy from source and apply to target
             try:
                 policy_resp = await source.execute(
                     S3Operation.GET_BUCKET_POLICY,

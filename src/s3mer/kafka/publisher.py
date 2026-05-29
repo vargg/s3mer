@@ -33,7 +33,6 @@ class ReplicationPublisher:
         operations on the same object go to the same partition
         (preserving order per-object).
         """
-        # Partition key: ensures ordering per bucket/key
         key_parts = [message.bucket]
         if message.key:
             key_parts.append(message.key)

@@ -85,7 +85,6 @@ class S3BackendClient:
             key=params.get("Key"),
         )
 
-        # Wrap in timer and status check
         start_time = time.perf_counter()
         try:
             result = await method(**params)

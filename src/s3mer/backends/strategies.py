@@ -99,7 +99,6 @@ class ReadFallbackStrategy:
             else:
                 return response
 
-        # All backends failed
         logger.error(
             "Read operation failed on all backends",
             operation=operation.value,
@@ -143,10 +142,11 @@ class WritePrimaryReplicationStrategy:
         """
         candidates = pool.get_write_candidates()
 
-        # If Body is an AsyncIterator, wrap it to allow replaying on fallback
         original_body = params.get("Body")
+        is_stream = False
         if original_body and isinstance(original_body, AsyncIterator):
             params["Body"] = BufferedStreamReader(original_body, self._metrics)
+            is_stream = True
 
         response: dict[str, Any] | None = None
         successful_backend = None
@@ -154,8 +154,7 @@ class WritePrimaryReplicationStrategy:
 
         for i, backend in enumerate(candidates):
             try:
-                # If this is a fallback attempt, rewind the buffered body
-                if i > 0 and isinstance(params.get("Body"), BufferedStreamReader):
+                if i > 0 and is_stream:
                     params["Body"].seek_to_start()
 
                 response = await backend.execute(operation, params)
@@ -191,12 +190,10 @@ class WritePrimaryReplicationStrategy:
                 raise last_error
             raise RuntimeError("No backends succeeded for write operation")
 
-        # Clean up buffer if we used one
-        if isinstance(params.get("Body"), BufferedStreamReader):
+        if is_stream:
             params["Body"].close()
 
         if replicate:
-            # 2. Replicate to ALL OTHER backends
             targets = [b for b in pool.all_clients if b.name != successful_backend.name]
             if targets:
                 await self._replication_manager.schedule_replication(
@@ -238,7 +235,6 @@ class MultiSyncWriteStrategy:
         temp_fd, temp_file_path = tempfile.mkstemp(prefix="s3mer_multisync_", dir=get_buffer_dir())
         os.close(temp_fd)
 
-        # Open the file via asyncio.to_thread to avoid blocking async main thread
         f: Any = await asyncio.to_thread(Path(temp_file_path).open, "wb")
         try:
             async for chunk in body:
@@ -263,7 +259,6 @@ class MultiSyncWriteStrategy:
             file_readers.append(reader)
             backend_params["Body"] = reader
 
-        # Handle UploadId mapping for UploadPart, CompleteMultipartUpload, AbortMultipartUpload
         if operation in (
             S3Operation.UPLOAD_PART,
             S3Operation.COMPLETE_MULTIPART_UPLOAD,
@@ -285,7 +280,6 @@ class MultiSyncWriteStrategy:
     ) -> None:
         """Register or clean up multipart upload ID mappings as needed."""
         if operation == S3Operation.CREATE_MULTIPART_UPLOAD:
-            # Primary response is from the primary backend
             primary_result = next((res for b, res in successful_backends if b.is_primary), None)
             if not primary_result and successful_backends:
                 primary_result = successful_backends[0][1]
@@ -302,7 +296,6 @@ class MultiSyncWriteStrategy:
                     }
                     self._upload_id_map[(bucket, key, primary_upload_id)] = mapping
 
-        # If Complete or Abort Multipart Upload, remove mapping
         elif operation in (S3Operation.COMPLETE_MULTIPART_UPLOAD, S3Operation.ABORT_MULTIPART_UPLOAD):
             primary_upload_id = params.get("UploadId")
             if primary_upload_id:
@@ -318,10 +311,8 @@ class MultiSyncWriteStrategy:
         *,
         replicate: bool = True,
     ) -> dict[str, Any]:
-        # Rename/prefix unused replicate parameter to satisfy ARG002
         _ = replicate
 
-        # Check if Body is an AsyncIterator
         original_body = params.get("Body")
         temp_file_path = None
         file_readers: list[ConcurrentFileStream] = []
@@ -329,12 +320,10 @@ class MultiSyncWriteStrategy:
         try:
             temp_file_path = await self._buffer_body(original_body)
 
-            # Find candidates
             candidates = pool.get_write_candidates()
             if not candidates:
                 raise RuntimeError("No write candidate backends configured")
 
-            # Run operations concurrently
             tasks = [
                 backend.execute(
                     operation, self._prepare_params(backend, operation, params, temp_file_path, file_readers)
@@ -342,17 +331,14 @@ class MultiSyncWriteStrategy:
                 for backend in candidates
             ]
 
-            # Run concurrently
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             failures, successful_backends, primary_response = self._analyze_results(candidates, results)
 
             if failures:
-                # Rollback successful writes
                 await self._rollback(operation, params, successful_backends)
                 self._raise_failure(failures)
 
-            # All succeeded! Update mappings if multipart
             self._update_multipart_mappings(operation, params, successful_backends)
 
             # If we don't have a primary response (e.g. if primary wasn't configured, though it should be),
@@ -363,11 +349,10 @@ class MultiSyncWriteStrategy:
             return primary_response
 
         finally:
-            # Clean up all ConcurrentFileStreams
             for reader in file_readers:
                 with contextlib.suppress(Exception):
                     await reader.close()
-            # Clean up temp file
+
             if temp_file_path:
                 temp_path = Path(temp_file_path)
                 if await asyncio.to_thread(temp_path.exists):

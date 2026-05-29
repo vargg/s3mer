@@ -198,7 +198,6 @@ def get_bucket_lifecycle_xml(  # noqa: PLR0912, PLR0915 - Standard complex mappi
         if "Status" in rule:
             parts.append(f"    <Status>{rule['Status']}</Status>")
 
-        # Handle Filter if present
         if "Filter" in rule:
             filt = rule["Filter"]
             parts.append("    <Filter>")
@@ -219,7 +218,6 @@ def get_bucket_lifecycle_xml(  # noqa: PLR0912, PLR0915 - Standard complex mappi
                 parts.append(f"      <Tag><Key>{tag['Key']}</Key><Value>{tag['Value']}</Value></Tag>")
             parts.append("    </Filter>")
 
-        # Handle Expiration
         if "Expiration" in rule:
             exp = rule["Expiration"]
             parts.append("    <Expiration>")
@@ -232,7 +230,6 @@ def get_bucket_lifecycle_xml(  # noqa: PLR0912, PLR0915 - Standard complex mappi
                 parts.append(f"      <ExpiredObjectDeleteMarker>{marker_val}</ExpiredObjectDeleteMarker>")
             parts.append("    </Expiration>")
 
-        # Handle Transition
         for trans in rule.get("Transitions", []):
             parts.append("    <Transition>")
             if "Days" in trans:
@@ -243,7 +240,6 @@ def get_bucket_lifecycle_xml(  # noqa: PLR0912, PLR0915 - Standard complex mappi
                 parts.append(f"      <StorageClass>{trans['StorageClass']}</StorageClass>")
             parts.append("    </Transition>")
 
-        # Handle NoncurrentVersionExpiration
         if "NoncurrentVersionExpiration" in rule:
             nve = rule["NoncurrentVersionExpiration"]
             parts.append("    <NoncurrentVersionExpiration>")
@@ -251,7 +247,6 @@ def get_bucket_lifecycle_xml(  # noqa: PLR0912, PLR0915 - Standard complex mappi
                 parts.append(f"      <NoncurrentDays>{nve['NoncurrentDays']}</NoncurrentDays>")
             parts.append("    </NoncurrentVersionExpiration>")
 
-        # Handle NoncurrentVersionTransition
         for nvt in rule.get("NoncurrentVersionTransitions", []):
             parts.append("    <NoncurrentVersionTransition>")
             if "NoncurrentDays" in nvt:
@@ -260,7 +255,6 @@ def get_bucket_lifecycle_xml(  # noqa: PLR0912, PLR0915 - Standard complex mappi
                 parts.append(f"      <StorageClass>{nvt['StorageClass']}</StorageClass>")
             parts.append("    </NoncurrentVersionTransition>")
 
-        # Handle AbortIncompleteMultipartUpload
         if "AbortIncompleteMultipartUpload" in rule:
             aimu = rule["AbortIncompleteMultipartUpload"]
             parts.append("    <AbortIncompleteMultipartUpload>")
@@ -281,7 +275,6 @@ def parse_lifecycle_configuration_xml(  # noqa: PLR0912, PLR0915 - Standard comp
     root = ET.fromstring(body)
     rules = []
 
-    # Helper to strip namespace from tags
     def clean_tag(tag: str) -> str:
         return tag.rsplit("}", maxsplit=1)[-1] if "}" in tag else tag
 

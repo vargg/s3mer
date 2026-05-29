@@ -126,8 +126,6 @@ class BufferedStreamReader(AsyncIterator[bytes]):
             if chunk:
                 return chunk
 
-            # If we reached the end of the buffer but the original source
-            # hasn't finished, switch back to live reading.
             if not self._eof_reached:
                 self._read_from_tmp = False
                 logger.debug("Buffer exhausted, resuming live read from source")
@@ -137,10 +135,7 @@ class BufferedStreamReader(AsyncIterator[bytes]):
         if self._eof_reached:
             return b""
 
-        # Read from source stream
         try:
-            # We use a fixed chunk size when reading from the underlying reader
-            # regardless of 'n', to simplify buffering.
             chunk = await anext(self.reader)
         except (StopAsyncIteration, GeneratorExit):
             self._eof_reached = True
@@ -268,7 +263,6 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
             return False
         pos = self._raw_buffer.find(b"\r\n")
         if pos == -1:
-            # Need more data for header
             return await self._fill_raw_buffer(len(self._raw_buffer) + 128)
 
         header = self._raw_buffer[:pos]
@@ -280,7 +274,6 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
             return False
 
         if self._current_chunk_remaining == 0:
-            # End of stream (trailing header might follow but we skip for now)
             return False
 
         self._state = DecoderState.READ_DATA
@@ -355,7 +348,6 @@ class ConcurrentFileStream(AsyncIterator[bytes]):
 
     def _ensure_file(self) -> None:
         if self._file is None:
-            # Keep the file handle open across generator yields, closed in close()
             self._file = Path(self.filepath).open("rb")  # noqa: SIM115
 
     async def read(self, n: int = -1) -> bytes:

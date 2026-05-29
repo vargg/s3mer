@@ -2,8 +2,6 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING
 from unittest.mock import ANY, AsyncMock, MagicMock
 
-import pytest
-
 from s3mer.routing.http_handler import S3HTTPHandler
 
 if TYPE_CHECKING:
@@ -18,10 +16,10 @@ def create_handler() -> S3HTTPHandler:
     )
 
 
-async def test_internal_routing_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_internal_routing_metrics() -> None:
     handler = create_handler()
     mock_metrics = AsyncMock()
-    handler._internal_routes = {"GET": {"/.internal/metrics": mock_metrics}}
+    setattr(handler, "_internal_routes", {"GET": {"/.internal/metrics": mock_metrics}})  # noqa: B010
 
     scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/metrics", "headers": []}
     receive: Receive = AsyncMock()
@@ -32,10 +30,10 @@ async def test_internal_routing_metrics(monkeypatch: pytest.MonkeyPatch) -> None
     mock_metrics.assert_called_once_with(scope, receive, ANY)
 
 
-async def test_internal_routing_health(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_internal_routing_health() -> None:
     handler = create_handler()
     mock_health = AsyncMock()
-    handler._internal_routes = {"GET": {"/.internal/health": mock_health}}
+    setattr(handler, "_internal_routes", {"GET": {"/.internal/health": mock_health}})  # noqa: B010
 
     scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/health", "headers": []}
     receive: Receive = AsyncMock()

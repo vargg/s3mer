@@ -45,7 +45,6 @@ class LatencyProber:
 
     async def _run_loop(self) -> None:
         """Periodic loop that executes LIST_BUCKETS on all backends."""
-        # Wait a short moment on startup before the first probe
         await asyncio.sleep(1.0)
         while True:
             try:
