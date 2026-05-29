@@ -39,7 +39,6 @@ def configs() -> dict[str, BackendConfig]:
     }
 
 
-@pytest.mark.asyncio
 async def test_latency_prober_measuring(configs: dict[str, BackendConfig]) -> None:
     # Set probe interval extremely short for testing
     pool = BackendPool(configs, NullMetricsTracker(), probe_interval=0.01)
@@ -82,7 +81,6 @@ async def test_latency_prober_measuring(configs: dict[str, BackendConfig]) -> No
         assert mock_close.call_count == len(configs)
 
 
-@pytest.mark.asyncio
 async def test_latency_prober_error_handling(configs: dict[str, BackendConfig]) -> None:
     pool = BackendPool(configs, NullMetricsTracker(), probe_interval=0.01)
 
@@ -109,7 +107,6 @@ async def test_latency_prober_error_handling(configs: dict[str, BackendConfig]) 
         assert pool._prober._task is None
 
 
-@pytest.mark.asyncio
 async def test_backend_pool_all_by_latency(configs: dict[str, BackendConfig]) -> None:
     pool = BackendPool(configs, NullMetricsTracker())
 

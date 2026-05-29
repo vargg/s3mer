@@ -1,53 +1,60 @@
 from http import HTTPStatus
 from typing import TYPE_CHECKING
-from unittest.mock import ANY, AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
-from s3mer.app import S3ProxyApp
+from s3mer.routing.http_handler import S3HTTPHandler
 
 if TYPE_CHECKING:
     from s3mer.common.types import Receive, Scope, Send
 
 
-@pytest.mark.asyncio
-async def test_internal_routing_metrics() -> None:
-    app = S3ProxyApp()
-    # Mock handlers
-    with patch("s3mer.app.metrics_handler", new_callable=AsyncMock) as mock_metrics:
-        scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/metrics", "headers": []}
-        receive: Receive = AsyncMock()
-        send: Send = AsyncMock()
-
-        # Accessing private member for testing purposes
-        await app(scope, receive, send)
-
-        mock_metrics.assert_called_once_with(scope, receive, ANY)
+def create_handler() -> S3HTTPHandler:
+    return S3HTTPHandler(
+        request_classifier=MagicMock(),
+        dispatcher=AsyncMock(),
+        metrics_tracker=MagicMock(),
+    )
 
 
-@pytest.mark.asyncio
-async def test_internal_routing_health() -> None:
-    app = S3ProxyApp()
-    with patch("s3mer.app.health_handler", new_callable=AsyncMock) as mock_health:
-        scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/health", "headers": []}
-        receive: Receive = AsyncMock()
-        send: Send = AsyncMock()
+async def test_internal_routing_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    handler = create_handler()
+    mock_metrics = AsyncMock()
+    handler._internal_routes = {"GET": {"/.internal/metrics": mock_metrics}}
 
-        await app(scope, receive, send)
+    scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/metrics", "headers": []}
+    receive: Receive = AsyncMock()
+    send: Send = AsyncMock()
 
-        mock_health.assert_called_once_with(scope, receive, ANY)
+    await handler(scope, receive, send)
+
+    mock_metrics.assert_called_once_with(scope, receive, ANY)
 
 
-@pytest.mark.asyncio
+async def test_internal_routing_health(monkeypatch: pytest.MonkeyPatch) -> None:
+    handler = create_handler()
+    mock_health = AsyncMock()
+    handler._internal_routes = {"GET": {"/.internal/health": mock_health}}
+
+    scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/health", "headers": []}
+    receive: Receive = AsyncMock()
+    send: Send = AsyncMock()
+
+    await handler(scope, receive, send)
+
+    mock_health.assert_called_once_with(scope, receive, ANY)
+
+
 async def test_internal_routing_unknown() -> None:
-    app = S3ProxyApp()
+    handler = create_handler()
 
     scope: Scope = {"type": "http", "method": "GET", "path": "/.internal/fake", "headers": []}
     receive: Receive = AsyncMock()
     send: Send = AsyncMock()
 
     # We expect this to call 'send' with a 403 status (Access Denied)
-    await app(scope, receive, send)
+    await handler(scope, receive, send)
 
     # Check that send was called with 403
     # The ASGIResponse call will call send multiple times (start and body)

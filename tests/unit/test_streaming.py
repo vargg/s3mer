@@ -1,7 +1,5 @@
 from typing import Any
 
-import pytest
-
 from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder
 
 
@@ -18,7 +16,6 @@ class MockReceive:
         return {"type": "http.disconnect"}
 
 
-@pytest.mark.asyncio
 async def test_aws_chunked_decoder() -> None:
     payload = b"5;chunk-signature=12345\r\nhello\r\n6;chunk-signature=67890\r\n world\r\n0;chunk-signature=abcd\r\n"
 
@@ -32,7 +29,6 @@ async def test_aws_chunked_decoder() -> None:
     assert result == b"hello world"
 
 
-@pytest.mark.asyncio
 async def test_aws_chunked_decoder_read_chunks() -> None:
     payload = b"5;chunk-signature=12345\r\nhello\r\n6;chunk-signature=67890\r\n world\r\n0;chunk-signature=abcd\r\n"
 

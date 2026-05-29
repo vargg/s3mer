@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from aiokafka import ConsumerRecord, TopicPartition
 
 from s3mer.app import S3ProxyApp
@@ -10,7 +9,6 @@ from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.kafka.subscribers import register_subscribers
 
 
-@pytest.mark.asyncio
 async def test_proxy_tracing_header_propagation() -> None:
     app = S3ProxyApp()
 
@@ -54,7 +52,6 @@ async def test_proxy_tracing_header_propagation() -> None:
     assert len(generated_id) > 0
 
 
-@pytest.mark.asyncio
 async def test_proxy_tracing_structlog_binding() -> None:
     app = S3ProxyApp()
 
@@ -77,7 +74,6 @@ async def test_proxy_tracing_structlog_binding() -> None:
         mock_clear.assert_called()
 
 
-@pytest.mark.asyncio
 async def test_publisher_tracing_propagation() -> None:
     broker = AsyncMock()
     publisher = ReplicationPublisher(broker=broker, topic="test-topic")
@@ -101,7 +97,6 @@ async def test_publisher_tracing_propagation() -> None:
         assert kwargs["headers"] == {"x-s3mer-request-id": "kafka-req-id-789"}
 
 
-@pytest.mark.asyncio
 async def test_subscriber_batch_tracing_extraction() -> None:
     # Construct a dummy ConsumerRecord with headers
     record = ConsumerRecord(

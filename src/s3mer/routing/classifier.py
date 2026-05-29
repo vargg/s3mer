@@ -47,7 +47,6 @@ class RequestClassifier:
     _BUCKET_NAME_PATTERN = r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
     _BUCKET_NAME_RE = re.compile(_BUCKET_NAME_PATTERN)
 
-    # Base routing table: (Method, Depth) -> Base Operation
     # Depth 0: Service level (/)
     # Depth 1: Bucket level (/{bucket})
     # Depth 2: Object level (/{bucket}/{key})
@@ -76,7 +75,6 @@ class RequestClassifier:
     }
 
     # Refinement table: base_op → ordered rules (first match wins).
-    # Adding a new S3 sub-operation = one line here.
     _REFINEMENT_TABLE: ClassVar[dict[S3Operation, tuple[_RefinementRule, ...]]] = {
         S3Operation.PUT_OBJECT: (
             _RefinementRule(S3Operation.PUT_OBJECT_TAGGING, query_key="tagging"),
@@ -115,18 +113,15 @@ class RequestClassifier:
         method = method.upper()
         bucket, key = self._extract_parts(path)
 
-        # 1. Determine base operation from (method, depth)
         depth = 0 if not bucket else (2 if key else 1)
         base_op = self._ROUTING_TABLE.get(method, {}).get(depth)
 
         if base_op is None:
             raise ValueError(f"Cannot classify request: {method} {path}")
 
-        # 2. Validate bucket if present
         if bucket and not self._BUCKET_NAME_RE.match(bucket):
             raise ValueError(f"Invalid bucket name: {bucket}")
 
-        # 3. Refine operation based on query parameters and headers
         query = dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
         operation = self._refine_operation(base_op, query, headers, path)
 
@@ -152,15 +147,12 @@ class RequestClassifier:
                 if rule.matches(query, headers):
                     return rule.refined_op
 
-        # Validation: POST at object depth requires ?uploads or ?uploadId
         if base_op == S3Operation.POST_OBJECT:
             raise ValueError(f"Cannot classify POST request without uploads or uploadId: {path}")
 
-        # Validation: POST at bucket depth requires ?delete
         if base_op == S3Operation.DELETE_OBJECTS and "delete" not in query:
             raise ValueError(f"Cannot classify POST request without 'delete' query param: {path}")
 
-        # GET /bucket without ?list-type=2 → ListObjects V1
         if base_op == S3Operation.LIST_OBJECTS_V2 and query.get("list-type") != "2":
             return S3Operation.LIST_OBJECTS
 

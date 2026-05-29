@@ -79,7 +79,6 @@ class TestLifecyclePolicyClassifier:
 # --- 2. HANDLER TESTS ---
 
 
-@pytest.mark.asyncio
 class TestLifecyclePolicyHandlers:
     """Test S3 HTTP handlers for lifecycle and policy operations."""
 
@@ -208,7 +207,6 @@ class TestLifecyclePolicyHandlers:
 # --- 3. REPLICATION WORKER TESTS ---
 
 
-@pytest.mark.asyncio
 class TestLifecyclePolicyReplication:
     """Test background worker replication of bucket lifecycle and policy configurations."""
 
