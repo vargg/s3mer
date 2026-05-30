@@ -43,4 +43,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
 
 # The CMD should be overridden in docker-compose for server vs worker
-CMD ["uvicorn", "s3mer.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["granian", "--interface", "asgi", "s3mer.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

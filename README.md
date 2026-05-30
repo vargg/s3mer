@@ -106,7 +106,7 @@ docker compose up -d
 **2. S3 proxy** (port 8000):
 
 ```bash
-uv run uvicorn s3mer.app:app --host 0.0.0.0 --port 8000
+uv run granian --interface asgi s3mer.app:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
 Or: `uv run python -m s3mer`

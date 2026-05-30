@@ -1,16 +1,15 @@
 """Entrypoint for running the s3mer proxy server."""
 
-import uvicorn
-
-from s3mer.app import create_app
-
-app = create_app()
+from granian import Granian
+from granian.constants import Interfaces
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "s3mer.__main__:app",
-        host="0.0.0.0",  # noqa: S104
+    server = Granian(
+        target="s3mer.app:create_app",
+        address="0.0.0.0",  # noqa: S104
         port=8000,
+        interface=Interfaces.ASGI,
+        factory=True,
         reload=True,
-        log_level="info",
     )
+    server.serve()

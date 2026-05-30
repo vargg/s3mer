@@ -1,7 +1,5 @@
 """Standalone FastStream worker application for async replication."""
 
-import asyncio
-
 from faststream.asgi import AsgiFastStream
 
 from s3mer.backends.pool import BackendPool
@@ -64,11 +62,13 @@ worker_app = create_worker_app()
 
 if __name__ == "__main__":
     settings = load_settings()
-    asyncio.run(
-        worker_app.run(
-            run_extra_options={
-                "host": settings.worker.host,
-                "port": settings.worker.port,
-            }
-        )
+    from granian import Granian
+    from granian.constants import Interfaces
+
+    server = Granian(
+        target="s3mer.worker.app:worker_app",
+        address=settings.worker.host,
+        port=settings.worker.port,
+        interface=Interfaces.ASGI,
     )
+    server.serve()

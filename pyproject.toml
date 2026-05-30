@@ -5,7 +5,7 @@ description = "S3 Multi-backend Event-driven Replicator"
 requires-python = ">=3.12"
 
 dependencies = [
-    "uvicorn[standard]>=0.34",
+    "granian>=1.7.0",
     "aiobotocore>=2.21",
     "faststream[kafka]>=0.5",
     "pydantic>=2.11",
