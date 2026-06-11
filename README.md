@@ -26,7 +26,7 @@ Typical usage: **write once, read a few times**, lifecycle-based expiry (tags/pr
 ## Core highlights
 
 - **Pure async ASGI** — path-style S3 proxy (`/bucket/key`) with declarative handler routing.
-- **Primary write + Kafka replication** — `WritePrimaryReplicationStrategy` (default); optional `multi_sync` for single-instance synchronous multi-backend writes.
+- **Primary write + Kafka replication** — `WritePrimaryReplicationStrategy` (default); optional quorum / multi-sync strategies for synchronous multi-backend writes (horizontally scalable; Valkey for distributed multipart).
 - **Write fallback** — on retryable primary failure, tries other backends; successful backend becomes the replication source.
 - **Read fallback** — primary first, then secondaries ordered by latency probing.
 - **Zero-Touch worker** — e.g. `CompleteMultipartUpload` / `CopyObject` replicate as `PUT_OBJECT` from the source backend; tagging/lifecycle/policy use state-sync from source.
@@ -140,7 +140,7 @@ See [`config/settings.example.yaml`](config/settings.example.yaml).
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `write_strategy` | `primary_replication` | `primary_replication` or `multi_sync` |
+| `write_strategy` | `primary_replication` | `primary_replication`, `multi_sync_simple`, `quorum_replication`, `multi_sync_distributed` |
 | `replication_mode` | `per_backend` | `per_backend` (recommended) or `batch` |
 | `stream_chunk_size` | `65536` | Proxy stream chunk size (bytes) |
 | `max_memory_stream_buffer_size` | `10485760` | Spool threshold before disk (bytes) |

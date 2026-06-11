@@ -29,7 +29,7 @@ This retry contract replaces a transactional outbox for the target deployment: t
 
 ### Operational defaults for geo deployments
 
-- **`write_strategy: primary_replication`** — do not use `multi_sync` unless running a single proxy instance and you explicitly need synchronous multi-region writes.
+- **`write_strategy: primary_replication`** — default for geo. Use `quorum_replication` or `multi_sync_distributed` when synchronous multi-backend writes are required at scale.
 - **`replication_mode: per_backend`** — isolates a sick region; avoids batch-mode pausing all partitions on one secondary failure.
 - Monitor **replication lag** and worker partition pause/retry — eventual geo consistency is worker-bound after a successful client `PUT`.
 
@@ -68,7 +68,7 @@ This retry contract replaces a transactional outbox for the target deployment: t
 
 - [x] **Kafka retry / ordering**: Pause–seek–resume with per-partition backoff (replaces re-publish-to-same-topic).
 - [x] **Health Check Probing**: `LatencyProber` background `LIST_BUCKETS` probes.
-- [x] **Multi-Sync Write Strategy** *(optional)*: `MultiSyncWriteStrategy` — concurrent writes to all backends with rollback. Implemented; **not recommended** for multi-instance geo proxy (in-memory multipart `UploadId` map is process-local).
+- [x] **Multi-Sync Write Strategies** *(optional)*: `SimpleMultiSyncWriteStrategy`, `QuorumReplicationStrategy`, `DistributedMultiSyncWriteStrategy` (Valkey MPU sessions, proxy UUID upload IDs). Horizontally scalable; no compensating rollback.
 - [~] **Transactional Outbox / Local WAL**: *Deferred for target deployment.* Client retry on publish failure + same-key `PUT` is the chosen consistency model. Revisit only if non-retrying clients or crash windows without client involvement must be covered.
 - [~] **Anti-Entropy Reconciliation**: *Deferred.* External orphan/detection mechanism covers drift for target deployment.
 - [~] **AllConsistent ETag Verification Mode**: *Deferred.* Write-once / primary-first reads do not require cross-backend ETag agreement on every read.

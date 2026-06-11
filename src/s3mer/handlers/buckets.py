@@ -33,7 +33,7 @@ async def handle_create_bucket(ctx: HandlerContext) -> ASGIResponse:
         )
     except Exception as exc:
         logger.exception("CreateBucket failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.DELETE_BUCKET, is_object_op=False)
@@ -45,7 +45,7 @@ async def handle_delete_bucket(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=204)
     except Exception as exc:
         logger.exception("DeleteBucket failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.HEAD_BUCKET, is_object_op=False)
@@ -57,7 +57,7 @@ async def handle_head_bucket(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=200)
     except Exception as exc:
         logger.exception("HeadBucket failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.LIST_BUCKETS, is_object_op=False)
@@ -82,7 +82,7 @@ async def handle_list_buckets(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("ListBuckets failed", error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource="/").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource="/")
 
 
 @s3_handler(S3Operation.LIST_OBJECTS_V2, is_object_op=False)
@@ -109,7 +109,7 @@ async def handle_list_objects_v2(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("ListObjectsV2 failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.LIST_OBJECTS, is_object_op=False)
@@ -132,7 +132,7 @@ async def handle_list_objects(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("ListObjects failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.DELETE_OBJECTS, is_object_op=False, body_style=BodyStyle.BUFFERED)
@@ -182,7 +182,7 @@ async def handle_delete_objects(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("DeleteObjects failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.GET_BUCKET_LIFECYCLE, is_object_op=False)
@@ -195,7 +195,7 @@ async def handle_get_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("GetBucketLifecycle failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.PUT_BUCKET_LIFECYCLE, is_object_op=False, body_style=BodyStyle.BUFFERED)
@@ -211,7 +211,7 @@ async def handle_put_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=200)
     except Exception as exc:
         logger.exception("PutBucketLifecycle failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.DELETE_BUCKET_LIFECYCLE, is_object_op=False)
@@ -223,7 +223,7 @@ async def handle_delete_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=204)
     except Exception as exc:
         logger.exception("DeleteBucketLifecycle failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.GET_BUCKET_POLICY, is_object_op=False)
@@ -239,7 +239,7 @@ async def handle_get_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=content, status_code=200, headers={"Content-Type": "application/json"})
     except Exception as exc:
         logger.exception("GetBucketPolicy failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.PUT_BUCKET_POLICY, is_object_op=False, body_style=BodyStyle.BUFFERED)
@@ -255,7 +255,7 @@ async def handle_put_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=200)
     except Exception as exc:
         logger.exception("PutBucketPolicy failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")
 
 
 @s3_handler(S3Operation.DELETE_BUCKET_POLICY, is_object_op=False)
@@ -267,4 +267,4 @@ async def handle_delete_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=204)
     except Exception as exc:
         logger.exception("DeleteBucketPolicy failed", bucket=ctx.bucket, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}")

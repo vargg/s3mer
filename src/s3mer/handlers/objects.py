@@ -45,7 +45,7 @@ async def handle_put_object(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=200, headers=headers)
     except Exception as exc:
         logger.exception("PutObject failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.GET_OBJECT)
@@ -77,7 +77,7 @@ async def handle_get_object(ctx: HandlerContext) -> ASGIResponse | ASGIStreaming
         )
     except Exception as exc:
         logger.exception("GetObject failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.DELETE_OBJECT)
@@ -94,7 +94,7 @@ async def handle_delete_object(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=204, headers=headers)
     except Exception as exc:
         logger.exception("DeleteObject failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.HEAD_OBJECT)
@@ -117,7 +117,7 @@ async def handle_head_object(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=200, headers=headers)
     except Exception as exc:
         logger.exception("HeadObject failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.CREATE_MULTIPART_UPLOAD)
@@ -139,7 +139,7 @@ async def handle_create_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("CreateMultipartUpload failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.UPLOAD_PART, body_style=BodyStyle.STREAM)
@@ -167,7 +167,7 @@ async def handle_upload_part(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=200, headers=headers)
     except Exception as exc:
         logger.exception("UploadPart failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.COMPLETE_MULTIPART_UPLOAD, body_style=BodyStyle.BUFFERED)
@@ -227,7 +227,7 @@ async def handle_complete_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("CompleteMultipartUpload failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.ABORT_MULTIPART_UPLOAD)
@@ -246,7 +246,7 @@ async def handle_abort_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=204)
     except Exception as exc:
         logger.exception("AbortMultipartUpload failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.COPY_OBJECT)
@@ -266,7 +266,7 @@ async def handle_copy_object(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("CopyObject failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.PUT_OBJECT_TAGGING, body_style=BodyStyle.BUFFERED)
@@ -317,7 +317,7 @@ async def handle_put_object_tagging(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=200)
     except Exception as exc:
         logger.exception("PutObjectTagging failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.GET_OBJECT_TAGGING)
@@ -331,7 +331,7 @@ async def handle_get_object_tagging(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=xml.encode(), status_code=200)
     except Exception as exc:
         logger.exception("GetObjectTagging failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")
 
 
 @s3_handler(S3Operation.DELETE_OBJECT_TAGGING)
@@ -344,4 +344,4 @@ async def handle_delete_object_tagging(ctx: HandlerContext) -> ASGIResponse:
         return ASGIResponse(content=b"", status_code=204)
     except Exception as exc:
         logger.exception("DeleteObjectTagging failed", bucket=ctx.bucket, key=ctx.key, error=str(exc))
-        return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
+        return S3ErrorResponse.from_handler_error(exc, resource=f"/{ctx.bucket}/{ctx.key}")

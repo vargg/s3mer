@@ -5,13 +5,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from s3mer.backends.strategies import (
-    MultiSyncWriteStrategy,
-    ReadFallbackStrategy,
-    WritePrimaryReplicationStrategy,
+from s3mer.backends.multisync_strategies import (
+    DistributedMultiSyncWriteStrategy,
+    QuorumReplicationStrategy,
+    SimpleMultiSyncWriteStrategy,
 )
+from s3mer.backends.strategies import ReadFallbackStrategy, WritePrimaryReplicationStrategy
+from s3mer.common.errors import OperationNotSupportedError
 from s3mer.common.metrics import NullMetricsTracker
 from s3mer.routing.operations import S3Operation
+from s3mer.state.memory import MemoryMultipartSessionStore
 
 
 def _make_mock_client(name: str, priority: int = 0, is_primary: bool = False) -> MagicMock:
@@ -40,6 +43,7 @@ def _make_mock_pool(clients: list[MagicMock]) -> MagicMock:
     secondaries = sorted(pool.get_secondaries.return_value, key=lambda c: c.priority)
     pool.all_by_latency.return_value = [pool.primary, *secondaries]
     pool.all_clients = clients
+    pool.get = lambda name: next(client for client in clients if client.name == name)
     return pool
 
 
@@ -245,14 +249,14 @@ class TestWritePrimaryReplicationStrategy:
         assert args["target_backend_names"] == ["primary"]
 
 
-class TestMultiSyncWriteStrategy:
-    """Tests for the concurrent multi-sync write strategy."""
+class TestSimpleMultiSyncWriteStrategy:
+    """Tests for the stateless simple multi-sync write strategy."""
 
     @pytest.fixture
-    def strategy(self) -> MultiSyncWriteStrategy:
-        return MultiSyncWriteStrategy(NullMetricsTracker())
+    def strategy(self) -> SimpleMultiSyncWriteStrategy:
+        return SimpleMultiSyncWriteStrategy(NullMetricsTracker(), sync_quorum=1)
 
-    async def test_writes_to_all_backends_concurrently(self, strategy: MultiSyncWriteStrategy) -> None:
+    async def test_writes_to_all_backends_concurrently(self, strategy: SimpleMultiSyncWriteStrategy) -> None:
         primary = _make_mock_client("primary", is_primary=True)
         primary.execute.return_value = {"ETag": '"abc123"'}
         secondary = _make_mock_client("secondary")
@@ -263,12 +267,14 @@ class TestMultiSyncWriteStrategy:
 
         result = await strategy.execute(S3Operation.PUT_OBJECT, pool, params)
 
-        # Returns primary backend response
         assert result["ETag"] == '"abc123"'
-        primary.execute.assert_called_once_with(S3Operation.PUT_OBJECT, params)
-        secondary.execute.assert_called_once_with(S3Operation.PUT_OBJECT, params)
+        primary.execute.assert_called_once()
+        secondary.execute.assert_called_once()
+        assert primary.execute.call_args[0][0] == S3Operation.PUT_OBJECT
+        assert isinstance(primary.execute.call_args[0][1]["Body"].__class__.__name__, str)
+        assert primary.execute.call_args[0][1]["Body"].__class__.__name__ == "AsyncBytesReader"
 
-    async def test_rollback_on_failure(self, strategy: MultiSyncWriteStrategy) -> None:
+    async def test_partial_failure_raises_without_rollback(self, strategy: SimpleMultiSyncWriteStrategy) -> None:
         primary = _make_mock_client("primary", is_primary=True)
         primary.execute.return_value = {"ETag": '"abc123"'}
         secondary = _make_mock_client("secondary")
@@ -280,51 +286,15 @@ class TestMultiSyncWriteStrategy:
         with pytest.raises(Exception, match="Write to secondary failed"):
             await strategy.execute(S3Operation.PUT_OBJECT, pool, params)
 
-        # Verify rollback occurred (primary deletion)
-        primary.execute.assert_any_call(S3Operation.PUT_OBJECT, params)
-        primary.execute.assert_any_call(S3Operation.DELETE_OBJECT, {"Bucket": "b", "Key": "k"})
-
-    async def test_multipart_upload_id_mapping(self, strategy: MultiSyncWriteStrategy) -> None:
-        primary = _make_mock_client("primary", is_primary=True)
-        primary.execute.return_value = {"UploadId": "p-up-123"}
-        secondary = _make_mock_client("secondary")
-        secondary.execute.return_value = {"UploadId": "s-up-456"}
-
-        pool = _make_mock_pool([primary, secondary])
-
-        # 1. Create multipart upload
-        create_params = {"Bucket": "b", "Key": "k"}
-        res = await strategy.execute(S3Operation.CREATE_MULTIPART_UPLOAD, pool, create_params)
-        assert res["UploadId"] == "p-up-123"
-
-        # 2. Upload part (should map primary upload id to secondary upload id)
-        upload_params = {"Bucket": "b", "Key": "k", "UploadId": "p-up-123", "Body": b"part-data"}
-        primary.execute.reset_mock()
-        secondary.execute.reset_mock()
-        primary.execute.return_value = {"ETag": "etag1"}
-        secondary.execute.return_value = {"ETag": "etag2"}
-
-        await strategy.execute(S3Operation.UPLOAD_PART, pool, upload_params)
-
         primary.execute.assert_called_once()
-        p_args = primary.execute.call_args[0][1]
-        assert p_args["UploadId"] == "p-up-123"
+        assert primary.execute.call_count == 1
 
-        secondary.execute.assert_called_once()
-        s_args = secondary.execute.call_args[0][1]
-        assert s_args["UploadId"] == "s-up-456"
+    async def test_multipart_is_rejected(self, strategy: SimpleMultiSyncWriteStrategy) -> None:
+        pool = _make_mock_pool([_make_mock_client("primary", is_primary=True)])
+        with pytest.raises(OperationNotSupportedError):
+            await strategy.execute(S3Operation.CREATE_MULTIPART_UPLOAD, pool, {"Bucket": "b", "Key": "k"})
 
-        # 3. Complete multipart upload (removes mapping)
-        complete_params = {"Bucket": "b", "Key": "k", "UploadId": "p-up-123"}
-        primary.execute.reset_mock()
-        secondary.execute.reset_mock()
-        primary.execute.return_value = {"Location": "/b/k"}
-        secondary.execute.return_value = {"Location": "/b/k"}
-
-        await strategy.execute(S3Operation.COMPLETE_MULTIPART_UPLOAD, pool, complete_params)
-        assert ("b", "k", "p-up-123") not in strategy._upload_id_map
-
-    async def test_streaming_body_buffering(self, strategy: MultiSyncWriteStrategy) -> None:
+    async def test_streaming_body_buffering(self, strategy: SimpleMultiSyncWriteStrategy) -> None:
         consumed_chunks = []
 
         async def mock_execute(_op: S3Operation, params: dict[str, Any]) -> dict[str, Any]:
@@ -349,7 +319,91 @@ class TestMultiSyncWriteStrategy:
         await strategy.execute(S3Operation.PUT_OBJECT, pool, params)
 
         primary.execute.assert_called_once()
-        # Verify the body was wrapped in ConcurrentFileStream
         p_body = primary.execute.call_args[0][1]["Body"]
-        assert p_body.__class__.__name__ == "ConcurrentFileStream"
+        assert p_body.__class__.__name__ == "AsyncBytesReader"
         assert b"".join(consumed_chunks) == b"streamchunks"
+
+
+class TestQuorumReplicationStrategy:
+    async def test_quorum_success_schedules_async_fill(self) -> None:
+        replication_manager = AsyncMock()
+        strategy = QuorumReplicationStrategy(
+            replication_manager,
+            NullMetricsTracker(),
+            sync_quorum=1,
+        )
+        primary = _make_mock_client("primary", is_primary=True)
+        primary.execute.return_value = {"ETag": '"ok"'}
+        secondary = _make_mock_client("secondary")
+        secondary.execute.side_effect = Exception("secondary down")
+
+        pool = _make_mock_pool([primary, secondary])
+        await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k", "Body": b"x"})
+
+        replication_manager.schedule_replication.assert_called_once()
+        targets = replication_manager.schedule_replication.call_args[1]["target_backend_names"]
+        assert targets == ["secondary"]
+
+
+class TestDistributedMultiSyncWriteStrategy:
+    @pytest.fixture
+    def strategy(self) -> DistributedMultiSyncWriteStrategy:
+        return DistributedMultiSyncWriteStrategy(
+            AsyncMock(),
+            MemoryMultipartSessionStore(),
+            NullMetricsTracker(),
+            sync_quorum=2,
+        )
+
+    async def test_create_returns_proxy_uuid(self, strategy: DistributedMultiSyncWriteStrategy) -> None:
+        primary = _make_mock_client("primary", is_primary=True)
+        primary.execute.return_value = {"UploadId": "native-primary"}
+        secondary = _make_mock_client("secondary")
+        secondary.execute.return_value = {"UploadId": "native-secondary"}
+
+        pool = _make_mock_pool([primary, secondary])
+        response = await strategy.execute(
+            S3Operation.CREATE_MULTIPART_UPLOAD,
+            pool,
+            {"Bucket": "b", "Key": "k"},
+            replicate=False,
+        )
+
+        canonical_id = response["UploadId"]
+        assert canonical_id not in {"native-primary", "native-secondary"}
+        session = await strategy._session_store.get_session(canonical_id)
+        assert session is not None
+        assert session.backend_upload_ids == {"primary": "native-primary", "secondary": "native-secondary"}
+
+    async def test_upload_part_maps_backend_upload_ids(self, strategy: DistributedMultiSyncWriteStrategy) -> None:
+        primary = _make_mock_client("primary", is_primary=True)
+        primary.execute.return_value = {"UploadId": "native-primary"}
+        secondary = _make_mock_client("secondary")
+        secondary.execute.return_value = {"UploadId": "native-secondary"}
+        pool = _make_mock_pool([primary, secondary])
+
+        create_response = await strategy.execute(
+            S3Operation.CREATE_MULTIPART_UPLOAD,
+            pool,
+            {"Bucket": "b", "Key": "k"},
+            replicate=False,
+        )
+        canonical_id = create_response["UploadId"]
+
+        primary.execute.reset_mock()
+        secondary.execute.reset_mock()
+        primary.execute.return_value = {"ETag": '"etag-p"'}
+        secondary.execute.return_value = {"ETag": '"etag-s"'}
+
+        await strategy.execute(
+            S3Operation.UPLOAD_PART,
+            pool,
+            {"Bucket": "b", "Key": "k", "UploadId": canonical_id, "PartNumber": 1, "Body": b"part"},
+            replicate=False,
+        )
+
+        primary_upload_id = primary.execute.call_args[0][1]["UploadId"]
+        secondary_upload_id = secondary.execute.call_args[0][1]["UploadId"]
+        assert primary_upload_id != canonical_id
+        assert secondary_upload_id != canonical_id
+        assert primary_upload_id != secondary_upload_id

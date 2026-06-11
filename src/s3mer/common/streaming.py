@@ -1,6 +1,8 @@
 """Async streaming utilities for proxying S3 object bodies."""
 
 import asyncio
+import contextlib
+import os
 import tempfile
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass
@@ -367,6 +369,117 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
         if not chunk:
             raise StopAsyncIteration
         return chunk
+
+
+class AsyncBytesReader(AsyncIterator[bytes]):
+    """Replayable async reader over shared in-memory bytes (one allocation, many iterators)."""
+
+    def __init__(self, data: bytes, chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
+        self._data = data
+        self._offset = 0
+        self._chunk_size = chunk_size
+
+    async def read(self, n: int = -1) -> bytes:
+        if self._offset >= len(self._data):
+            return b""
+        if n == -1:
+            chunk = self._data[self._offset :]
+            self._offset = len(self._data)
+            return chunk
+        end = min(self._offset + n, len(self._data))
+        chunk = self._data[self._offset : end]
+        self._offset = end
+        return chunk
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> bytes:
+        chunk = await self.read(self._chunk_size)
+        if not chunk:
+            raise StopAsyncIteration
+        return chunk
+
+
+def _write_spill_file(path: str, prefix_chunks: list[bytes], middle_chunk: bytes, suffix_chunks: list[bytes]) -> None:
+    with Path(path).open("wb") as spill_file:
+        spill_file.writelines(prefix_chunks)
+        spill_file.write(middle_chunk)
+        spill_file.writelines(suffix_chunks)
+
+
+class MultiSyncBodyBuffer:
+    """
+    Buffer a request body once for fan-out to multiple backends.
+
+    Small bodies stay in memory (shared bytes); larger bodies spill to a temp file.
+    """
+
+    def __init__(
+        self,
+        *,
+        data: bytes | None = None,
+        path: str | None = None,
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+    ) -> None:
+        self._data = data
+        self._path = path
+        self._chunk_size = chunk_size
+        self._readers: list[AsyncIterator[bytes]] = []
+
+    @classmethod
+    async def from_body(cls, body: Any, stream_config: StreamConfig) -> Self | None:
+        """Materialize an async stream or bytes body for multi-backend replay."""
+        if body is None:
+            return None
+        if isinstance(body, (bytes, bytearray)):
+            return cls(data=bytes(body), chunk_size=stream_config.chunk_size)
+        if not isinstance(body, AsyncIterator):
+            return None
+
+        chunks: list[bytes] = []
+        total = 0
+        max_memory = stream_config.max_memory_size
+
+        async for chunk in body:
+            total += len(chunk)
+            if total <= max_memory:
+                chunks.append(chunk)
+                continue
+
+            temp_fd, temp_path = tempfile.mkstemp(prefix="s3mer_multisync_", dir=stream_config.buffer_dir)
+            os.close(temp_fd)
+
+            rest_chunks = [rest async for rest in body]
+            await asyncio.to_thread(_write_spill_file, temp_path, chunks, chunk, rest_chunks)
+            return cls(path=temp_path, chunk_size=stream_config.chunk_size)
+
+        return cls(data=b"".join(chunks), chunk_size=stream_config.chunk_size)
+
+    def open_reader(self) -> AsyncIterator[bytes]:
+        """Return a new independent reader positioned at the start."""
+        if self._data is not None:
+            reader: AsyncIterator[bytes] = AsyncBytesReader(self._data, self._chunk_size)
+        elif self._path is not None:
+            reader = ConcurrentFileStream(self._path, chunk_size=self._chunk_size)
+        else:
+            raise RuntimeError("MultiSyncBodyBuffer has no data")
+        self._readers.append(reader)
+        return reader
+
+    async def close(self) -> None:
+        """Close readers and remove any spilled temp file."""
+        for reader in self._readers:
+            if isinstance(reader, ConcurrentFileStream):
+                with contextlib.suppress(Exception):
+                    await reader.close()
+        self._readers.clear()
+
+        if self._path is not None:
+            temp_path = Path(self._path)
+            if await asyncio.to_thread(temp_path.exists):
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(temp_path.unlink)
 
 
 class ConcurrentFileStream(AsyncIterator[bytes]):

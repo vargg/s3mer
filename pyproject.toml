@@ -15,6 +15,11 @@ dependencies = [
     "prometheus-client>=0.25.0",
 ]
 
+[project.optional-dependencies]
+distributed = [
+    "redis>=5.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
@@ -53,6 +58,7 @@ select = ["ALL"]
 ignore = ["ANN401", "BLE001", "COM812", "C901", "D", "EM", "FBT", "TRY003", "PLR0911", "PLR0913", "S314"]
 
 [tool.ruff.lint.per-file-ignores]
+"src/s3mer/backends/multisync_strategies.py" = ["TC001"]
 "tests/**/*.py" = ["S101", "SLF001"]
 "tests/e2e/*.py" = ["S310"]
 "scripts/**/*.py" = ["T201", "S311", "E501", "PLR2004", "PLR0915", "PLR0912", "EXE001"]

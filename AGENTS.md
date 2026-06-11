@@ -35,7 +35,7 @@ Duplicate Kafka messages and worker `PUT` replays are safe (overwrite semantics)
 
 Multipart is **supported** in the proxy. Geo replication runs **only after a successful `CompleteMultipartUpload`** (mapped to worker `PUT_OBJECT`, same as a single `PutObject`). `CreateMultipartUpload`, `UploadPart`, and `AbortMultipartUpload` are **not** replicated to Kafka (`replicate=False`).
 
-**In-flight uploads are single-backend.** There is no `UploadId` mapping across backends in `WritePrimaryReplicationStrategy` (only in optional `multi_sync`). If the primary fails after some parts were written only there, a fallback `UploadPart` with the same `UploadId` on a secondary will fail (no session on that backend). The client receives a non-2xx response.
+**In-flight uploads are single-backend** under `primary_replication`. There is no `UploadId` mapping across backends in that mode. Use `multi_sync_distributed` (Valkey-backed proxy UUID sessions) for horizontally scaled multipart. If the primary fails after some parts were written only there, a fallback `UploadPart` with the same `UploadId` on a secondary will fail (no session on that backend). The client receives a non-2xx response.
 
 **Client behavior on failure (same contract as `PutObject`):**
 
@@ -51,7 +51,7 @@ Write fallback still helps when **`CreateMultipartUpload` succeeded on a seconda
 
 | Setting | Recommended | Notes |
 |---------|-------------|--------|
-| `write_strategy` | `primary_replication` | Default. Avoid `multi_sync` unless a single proxy instance and you need synchronous multi-region writes. |
+| `write_strategy` | `primary_replication` | Default. Use `quorum_replication`, `multi_sync_simple`, or `multi_sync_distributed` when synchronous multi-backend writes are required. |
 | `replication_mode` | `per_backend` | Default. Isolates a sick region; batch mode pauses all assigned partitions on any secondary failure. |
 
 Monitor replication lag and worker partition pause/retry after successful client writes.
@@ -73,7 +73,7 @@ Monitor replication lag and worker partition pause/retry after successful client
 - **Primary-synchronous writes**: `WritePrimaryReplicationStrategy` (default) commits to the primary first, then schedules Kafka replication.
 - **Write fallback**: On retryable primary failure, tries secondary backends in priority order; successful backend becomes the replication source.
 - **Secondary-asynchronous replication**: After a successful write, tasks are published to Kafka for background workers.
-- **Optional `MultiSyncWriteStrategy`**: Concurrent writes to all backends with rollback (`write_strategy: multi_sync`). In-memory multipart `UploadId` mapping is process-local — not for horizontally scaled geo proxy.
+- **Optional multi-sync write strategies** (horizontally scalable): `multi_sync_simple` (stateless, no multipart), `quorum_replication` (configurable quorum + Kafka backfill), `multi_sync_distributed` (Valkey-backed multipart with proxy-issued UUID upload IDs). No compensating rollback — non-2xx on quorum miss; clients retry; orphans acceptable.
 - **Zero-Touch replication** (worker reuses S3 APIs):
   - **Mapping**: `CompleteMultipartUpload` and `CopyObject` replicate as worker `PUT_OBJECT` (read finalized object from source, write to target).
   - **Fan-out**: `DeleteObjects` → individual `DELETE_OBJECT` tasks per key.
@@ -106,7 +106,10 @@ S3MER uses **Pydantic-settings** (`config/settings.py`). Example: `config/settin
 
 | Key | Default | Role |
 |-----|---------|------|
-| `write_strategy` | `primary_replication` | `primary_replication` or `multi_sync` |
+| `write_strategy` | `primary_replication` | `primary_replication`, `multi_sync_simple`, `quorum_replication`, `multi_sync_distributed` |
+| `sync_quorum` | `1` | Min backends that must ack synchronously (quorum / distributed modes) |
+| `sync_backends` | all backends | Subset participating in synchronous writes |
+| `valkey` | — | Required for `multi_sync_distributed` (`s3mer[distributed]` extra) |
 | `replication_mode` | `per_backend` | `per_backend` or `batch` |
 | `stream_chunk_size` | `65536` | Proxy pipe chunk size (bytes) |
 | `max_memory_stream_buffer_size` | `10485760` | Spool threshold before disk (bytes) |

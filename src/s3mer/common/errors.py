@@ -43,11 +43,44 @@ class S3Errors:
         503,
         "Reduce your request rate. Service is temporarily unavailable.",
     )
+    NOT_IMPLEMENTED = S3ErrorCode(
+        "NotImplemented",
+        501,
+        "A header you provided implies functionality that is not implemented",
+    )
+    NO_SUCH_UPLOAD = S3ErrorCode(
+        "NoSuchUpload",
+        404,
+        (
+            "The specified multipart upload does not exist. "
+            "The upload ID may be invalid, or the upload may have been aborted."
+        ),
+    )
     ENTITY_TOO_SMALL = S3ErrorCode(
         "EntityTooSmall",
         400,
         "Your proposed upload is smaller than the minimum allowed object size.",
     )
+
+
+class OperationNotSupportedError(Exception):
+    """Raised when the configured write strategy does not support an operation."""
+
+    def __init__(self, message: str, *, error_code: S3ErrorCode | None = None, resource: str | None = None) -> None:
+        self.message = message
+        self.error_code = error_code or S3Errors.NOT_IMPLEMENTED
+        self.resource = resource
+        super().__init__(message)
+
+    def to_response(self, request_id: str | None = None, resource: str | None = None) -> ASGIResponse:
+        response = S3ErrorResponse(
+            error_code=self.error_code,
+            message=self.message,
+            resource=resource or self.resource,
+        )
+        if request_id is not None:
+            response.request_id = request_id
+        return response.to_response()
 
 
 @dataclass
@@ -130,6 +163,13 @@ class S3ErrorResponse:
             message=error_message,
             resource=resource,
         )
+
+    @classmethod
+    def from_handler_error(cls, error: Exception, resource: str | None = None) -> ASGIResponse:
+        """Map handler exceptions (including strategy errors) to an ASGI response."""
+        if isinstance(error, OperationNotSupportedError):
+            return error.to_response(resource=error.resource or resource)
+        return cls.from_client_error(error, resource=resource).to_response()
 
 
 def _xml_escape(text: str) -> str:

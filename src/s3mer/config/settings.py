@@ -26,7 +26,18 @@ class WriteStrategyType(StrEnum):
     """Write execution strategy style."""
 
     PRIMARY_REPLICATION = "primary_replication"
-    MULTI_SYNC = "multi_sync"
+    MULTI_SYNC = "multi_sync"  # alias for multi_sync_simple
+    MULTI_SYNC_SIMPLE = "multi_sync_simple"
+    QUORUM_REPLICATION = "quorum_replication"
+    MULTI_SYNC_DISTRIBUTED = "multi_sync_distributed"
+
+
+class ValkeyConfig(BaseModel):
+    """Valkey (Redis-protocol) settings for distributed multipart sessions."""
+
+    url: str = Field(default="valkey://localhost:6379/0")
+    session_ttl_seconds: int = Field(default=604800, description="Multipart session TTL (7 days)")
+    key_prefix: str = Field(default="s3mer:mpu:")
 
 
 class BackendConfig(BaseModel):
@@ -157,8 +168,24 @@ class Settings(BaseSettings):
     )
     write_strategy: WriteStrategyType = Field(
         default=WriteStrategyType.PRIMARY_REPLICATION,
-        description="Write strategy mode: 'primary_replication' (default) or 'multi_sync' (concurrent synchronous).",
+        description=(
+            "Write strategy: primary_replication, multi_sync_simple, quorum_replication, or multi_sync_distributed."
+        ),
     )
+    sync_quorum: int = Field(
+        default=1,
+        ge=1,
+        description="Minimum backends that must acknowledge a synchronous write (quorum / distributed modes).",
+    )
+    sync_backends: list[str] = Field(
+        default_factory=list,
+        description="Backends participating in synchronous writes (empty = all backends).",
+    )
+    response_backend: str | None = Field(
+        default=None,
+        description="Backend whose response metadata is returned to clients (default: primary among successes).",
+    )
+    valkey: ValkeyConfig = Field(default_factory=ValkeyConfig)
     stream_chunk_size: int = Field(
         default=65536,
         description="Default streaming chunk size in bytes",
@@ -194,6 +221,13 @@ class Settings(BaseSettings):
             YamlConfigSettingsSource(settings_cls),
         )
 
+    @field_validator("write_strategy", mode="before")
+    @classmethod
+    def normalize_write_strategy(cls, value: Any) -> Any:
+        if value == "multi_sync":
+            return WriteStrategyType.MULTI_SYNC_SIMPLE
+        return value
+
     @model_validator(mode="after")
     def validate_backends(self) -> Self:
         """Ensure exactly one primary backend is configured."""
@@ -205,6 +239,21 @@ class Settings(BaseSettings):
             raise ValueError("At least one backend must have is_primary=True")
         if len(primaries) > 1:
             raise ValueError(f"Exactly one primary backend allowed, got: {primaries}")
+
+        sync_backends = self.sync_backends or list(self.backends.keys())
+        if self.sync_quorum > len(sync_backends):
+            raise ValueError(
+                f"sync_quorum ({self.sync_quorum}) cannot exceed number of sync_backends ({len(sync_backends)})"
+            )
+        for name in sync_backends:
+            if name not in self.backends:
+                raise ValueError(f"sync_backends references unknown backend: {name!r}")
+
+        if self.response_backend is not None and self.response_backend not in self.backends:
+            raise ValueError(f"response_backend references unknown backend: {self.response_backend!r}")
+
+        if self.write_strategy == WriteStrategyType.MULTI_SYNC_DISTRIBUTED and not self.valkey.url:
+            raise ValueError("valkey.url is required for multi_sync_distributed")
 
         return self
 

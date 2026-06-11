@@ -1,24 +1,24 @@
 """Pure ASGI application that proxies S3 requests to configured backends."""
 
-from typing import Any
-
 from s3mer.backends.pool import BackendPool
-from s3mer.backends.strategies import (
-    MultiSyncWriteStrategy,
-    ReadFallbackStrategy,
-    WritePrimaryReplicationStrategy,
-)
+from s3mer.backends.strategies import ReadFallbackStrategy
+from s3mer.backends.write_factory import build_write_strategy
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
 from s3mer.common.streaming import StreamConfig
 from s3mer.common.types import Receive, Scope, Send
-from s3mer.config.settings import ReplicationMode, WriteStrategyType, load_settings
+from s3mer.config.settings import ReplicationMode, load_settings
 from s3mer.kafka.broker import create_broker
 from s3mer.kafka.manager import BatchReplicationManager, PerBackendReplicationManager
 from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.routing.classifier import RequestClassifier
 from s3mer.routing.dispatcher import RequestDispatcher
 from s3mer.routing.http_handler import S3HTTPHandler
+from s3mer.state.factory import (
+    close_multipart_session_store,
+    create_multipart_session_store,
+    start_multipart_session_store,
+)
 
 logger = get_logger(__name__)
 
@@ -48,14 +48,14 @@ class S3ProxyApp:
         else:
             replication_manager = BatchReplicationManager(publisher, metrics_tracker)
 
-        if settings.write_strategy == WriteStrategyType.MULTI_SYNC:
-            write_strategy: Any = MultiSyncWriteStrategy(metrics_tracker, stream_config)
-        else:
-            write_strategy = WritePrimaryReplicationStrategy(
-                replication_manager,
-                metrics_tracker,
-                stream_config,
-            )
+        self._session_store = create_multipart_session_store(settings)
+        write_strategy = build_write_strategy(
+            settings,
+            replication_manager,
+            metrics_tracker,
+            stream_config,
+            self._session_store,
+        )
 
         dispatcher = RequestDispatcher(
             self._pool,
@@ -79,6 +79,7 @@ class S3ProxyApp:
         log = get_logger("s3mer.startup")
         log.info("Starting s3mer proxy", backends=list(settings.backends.keys()))
 
+        await start_multipart_session_store(self._session_store)
         await self._pool.start()
         await self._broker.start()
 
@@ -91,6 +92,7 @@ class S3ProxyApp:
 
         await self._broker.stop()
         await self._pool.close()
+        await close_multipart_session_store(self._session_store)
 
         log.info("s3mer proxy stopped")
 
