@@ -47,6 +47,7 @@ kafka:
     - localhost:9094
   topic: s3mer.replication
   consumer_group: s3mer-workers
-  concurrency: 2                          # Number of parallel workers/consumers per process
+  concurrency: 1                          # Parallel handlers per consumer (1 recommended)
   replication_retry_delay: 1.0            # Base retry backoff delay (seconds)
   replication_max_retry_delay: 60.0       # Max retry backoff delay (seconds)
+  replication_max_retries: 10             # Background retries before skipping message

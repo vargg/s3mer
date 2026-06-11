@@ -32,6 +32,7 @@ def create_worker_app() -> AsgiFastStream:
         pool,
         settings.replication_mode,
         settings.kafka,
+        metrics,
     )
 
     app = AsgiFastStream(

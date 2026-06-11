@@ -1,6 +1,7 @@
 # ruff: noqa: PLR2004
 """Unit tests for Kafka replication subscribers and control loops."""
 
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,9 +10,11 @@ from botocore.exceptions import ClientError
 
 from s3mer.backends.client import S3BackendClient
 from s3mer.backends.pool import BackendPool
+from s3mer.common.metrics import NullMetricsTracker
 from s3mer.config.settings import ReplicationMode
 from s3mer.kafka.messages import ReplicationMessage
 from s3mer.kafka.subscribers import (
+    ReplicationRetryConfig,
     _replicate_operation,
     _schedule_global_retry,
     _schedule_per_backend_retry,
@@ -162,6 +165,20 @@ class TestReplicateOperation:
         )
         await _replicate_operation(S3Operation.DELETE_OBJECT, message, source, target)
         target.execute.assert_called_once_with(S3Operation.DELETE_OBJECT, {"Bucket": "b", "Key": "k"})
+
+    async def test_delete_object_no_such_key_is_idempotent(self, source: MagicMock, target: MagicMock) -> None:
+        message = ReplicationMessage(
+            operation="delete_object",
+            bucket="b",
+            key="k",
+            source_backend="p",
+            target_backends=["s"],
+        )
+        target.execute.side_effect = make_client_error("NoSuchKey", 404)
+
+        await _replicate_operation(S3Operation.DELETE_OBJECT, message, source, target)
+
+        target.execute.assert_called_once()
 
     async def test_object_tagging_operations(self, source: MagicMock, target: MagicMock) -> None:
         # PUT Object Tagging
@@ -359,6 +376,17 @@ class TestSubscriberPipelines:
 class TestBackgroundRetryLoops:
     """Tests background retry loops, exponential backoff, seeks, and partition resumptions."""
 
+    @pytest.fixture(autouse=True)
+    def _restore_retry_config(self) -> Iterator[None]:
+        original = ReplicationRetryConfig.max_retries
+        ReplicationRetryConfig.max_retries = 10
+        yield
+        ReplicationRetryConfig.max_retries = original
+
+    @pytest.fixture
+    def metrics(self) -> NullMetricsTracker:
+        return NullMetricsTracker()
+
     @pytest.fixture
     def mock_subscriber(self) -> MagicMock:
         sub = MagicMock()
@@ -392,6 +420,7 @@ class TestBackgroundRetryLoops:
         mock_subscriber: MagicMock,
         source: MagicMock,
         pool: MagicMock,
+        metrics: NullMetricsTracker,
     ) -> None:
         tp = TopicPartition("s3mer.replication", 0)
         assigned = {tp}
@@ -419,6 +448,7 @@ class TestBackgroundRetryLoops:
             source=source,
             failed_targets=["sec1"],
             pool=pool,
+            metrics=metrics,
         )
 
         assert mock_sleep.call_count == 2
@@ -434,6 +464,7 @@ class TestBackgroundRetryLoops:
         mock_subscriber: MagicMock,
         source: MagicMock,
         pool: MagicMock,
+        metrics: NullMetricsTracker,
     ) -> None:
         tp = TopicPartition("s3mer.replication", 0)
         assigned = {tp}
@@ -458,6 +489,7 @@ class TestBackgroundRetryLoops:
             source=source,
             failed_targets=["sec1"],
             pool=pool,
+            metrics=metrics,
         )
 
         # Since it's a FAIL action, the global retry loop should skip the target
@@ -475,6 +507,7 @@ class TestBackgroundRetryLoops:
         mock_subscriber: MagicMock,
         source: MagicMock,
         target: MagicMock,
+        metrics: NullMetricsTracker,
     ) -> None:
         tp = TopicPartition("s3mer.replication.sec1", 0)
         message = ReplicationMessage(
@@ -498,6 +531,7 @@ class TestBackgroundRetryLoops:
             operation=S3Operation.PUT_OBJECT,
             source=source,
             target=target,
+            metrics=metrics,
         )
 
         assert mock_sleep.call_count == 2
@@ -513,6 +547,7 @@ class TestBackgroundRetryLoops:
         mock_subscriber: MagicMock,
         source: MagicMock,
         target: MagicMock,
+        metrics: NullMetricsTracker,
     ) -> None:
         tp = TopicPartition("s3mer.replication.sec1", 0)
         message = ReplicationMessage(
@@ -534,9 +569,87 @@ class TestBackgroundRetryLoops:
             operation=S3Operation.PUT_OBJECT,
             source=source,
             target=target,
+            metrics=metrics,
         )
 
         assert mock_sleep.call_count == 1
         # Crucial assert: seeks PAST the failed message offset + 1 to prevent queue lockup!
+        mock_subscriber.consumer.seek.assert_called_once_with(tp, 201)
+        mock_subscriber.consumer.resume.assert_called_once_with(tp)
+
+    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    async def test_schedule_global_retry_max_retries_advances_offset(
+        self,
+        mock_replicate: AsyncMock,
+        mock_sleep: AsyncMock,
+        mock_subscriber: MagicMock,
+        source: MagicMock,
+        pool: MagicMock,
+        metrics: NullMetricsTracker,
+    ) -> None:
+        ReplicationRetryConfig.max_retries = 2
+        tp = TopicPartition("s3mer.replication", 0)
+        assigned = {tp}
+        message = ReplicationMessage(
+            operation="put_object",
+            bucket="b",
+            key="k",
+            source_backend="p",
+            target_backends=["sec1"],
+        )
+        mock_replicate.side_effect = ConnectionError("transient")
+
+        await _schedule_global_retry(
+            subscriber=mock_subscriber,
+            failed_tp=tp,
+            failed_offset=100,
+            assigned_partitions=assigned,
+            message=message,
+            operation=S3Operation.PUT_OBJECT,
+            source=source,
+            failed_targets=["sec1"],
+            pool=pool,
+            metrics=metrics,
+        )
+
+        assert mock_sleep.call_count == 2
+        mock_subscriber.consumer.seek.assert_called_once_with(tp, 101)
+        mock_subscriber.consumer.resume.assert_called_once_with(tp)
+
+    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    async def test_schedule_per_backend_retry_max_retries_advances_offset(
+        self,
+        mock_replicate: AsyncMock,
+        mock_sleep: AsyncMock,
+        mock_subscriber: MagicMock,
+        source: MagicMock,
+        target: MagicMock,
+        metrics: NullMetricsTracker,
+    ) -> None:
+        ReplicationRetryConfig.max_retries = 2
+        tp = TopicPartition("s3mer.replication.sec1", 0)
+        message = ReplicationMessage(
+            operation="put_object",
+            bucket="b",
+            key="k",
+            source_backend="p",
+            target_backends=["sec1"],
+        )
+        mock_replicate.side_effect = ConnectionError("transient")
+
+        await _schedule_per_backend_retry(
+            subscriber=mock_subscriber,
+            failed_tp=tp,
+            failed_offset=200,
+            message=message,
+            operation=S3Operation.PUT_OBJECT,
+            source=source,
+            target=target,
+            metrics=metrics,
+        )
+
+        assert mock_sleep.call_count == 2
         mock_subscriber.consumer.seek.assert_called_once_with(tp, 201)
         mock_subscriber.consumer.resume.assert_called_once_with(tp)

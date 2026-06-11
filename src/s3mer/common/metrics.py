@@ -43,6 +43,26 @@ class MetricsTracker(Protocol):
         """Record the change in active BufferedStreamReader instances."""
         ...
 
+    def record_replication_consumer_outcome(self, operation: str, target_backend: str, outcome: str) -> None:
+        """Record a replication consumer outcome (success, skipped_*, etc.)."""
+        ...
+
+    def record_replication_retry(self, operation: str, target_backend: str) -> None:
+        """Record one background replication retry attempt."""
+        ...
+
+    def record_replication_partition_paused(self, topic: str, partition: int) -> None:
+        """Record a consumer partition paused for replication retry."""
+        ...
+
+    def record_replication_partition_resumed(self, topic: str, partition: int) -> None:
+        """Record a consumer partition resumed after replication retry."""
+        ...
+
+    def set_replication_consumer_concurrency(self, concurrency: int) -> None:
+        """Set the configured replication consumer concurrency gauge."""
+        ...
+
 
 class NullMetricsTracker:
     """No-op implementation of MetricsTracker for testing or disabled monitoring."""
@@ -54,6 +74,11 @@ class NullMetricsTracker:
     def record_backend_status(self, backend: str, is_up: bool) -> None: ...
     def record_backend_request(self, backend: str, operation: str, status: str, duration: float) -> None: ...
     def record_active_stream_readers(self, count_delta: int) -> None: ...
+    def record_replication_consumer_outcome(self, operation: str, target_backend: str, outcome: str) -> None: ...
+    def record_replication_retry(self, operation: str, target_backend: str) -> None: ...
+    def record_replication_partition_paused(self, topic: str, partition: int) -> None: ...
+    def record_replication_partition_resumed(self, topic: str, partition: int) -> None: ...
+    def set_replication_consumer_concurrency(self, concurrency: int) -> None: ...
 
 
 _HTTP_REQUESTS_TOTAL = Counter(
@@ -106,6 +131,35 @@ _ACTIVE_STREAM_READERS = Gauge(
     "Number of active BufferedStreamReader instances",
 )
 
+_REPLICATION_CONSUMER_OUTCOMES_TOTAL = Counter(
+    "s3mer_replication_consumer_outcomes_total",
+    "Replication consumer outcomes per operation and target",
+    ["operation", "target_backend", "outcome"],
+)
+
+_REPLICATION_RETRIES_TOTAL = Counter(
+    "s3mer_replication_retries_total",
+    "Background replication retry attempts",
+    ["operation", "target_backend"],
+)
+
+_REPLICATION_PARTITION_PAUSED_TOTAL = Counter(
+    "s3mer_replication_partition_paused_total",
+    "Consumer partitions paused for replication retry",
+    ["topic", "partition"],
+)
+
+_REPLICATION_PARTITION_RESUMED_TOTAL = Counter(
+    "s3mer_replication_partition_resumed_total",
+    "Consumer partitions resumed after replication retry",
+    ["topic", "partition"],
+)
+
+_REPLICATION_CONSUMER_CONCURRENCY = Gauge(
+    "s3mer_replication_consumer_concurrency",
+    "Configured parallel replication message handlers per consumer",
+)
+
 
 class PrometheusMetricsTracker(MetricsTracker):
     """Prometheus implementation of metrics tracking."""
@@ -136,6 +190,23 @@ class PrometheusMetricsTracker(MetricsTracker):
             _ACTIVE_STREAM_READERS.inc(count_delta)
         elif count_delta < 0:
             _ACTIVE_STREAM_READERS.dec(abs(count_delta))
+
+    def record_replication_consumer_outcome(self, operation: str, target_backend: str, outcome: str) -> None:
+        _REPLICATION_CONSUMER_OUTCOMES_TOTAL.labels(
+            operation=operation, target_backend=target_backend, outcome=outcome
+        ).inc()
+
+    def record_replication_retry(self, operation: str, target_backend: str) -> None:
+        _REPLICATION_RETRIES_TOTAL.labels(operation=operation, target_backend=target_backend).inc()
+
+    def record_replication_partition_paused(self, topic: str, partition: int) -> None:
+        _REPLICATION_PARTITION_PAUSED_TOTAL.labels(topic=topic, partition=str(partition)).inc()
+
+    def record_replication_partition_resumed(self, topic: str, partition: int) -> None:
+        _REPLICATION_PARTITION_RESUMED_TOTAL.labels(topic=topic, partition=str(partition)).inc()
+
+    def set_replication_consumer_concurrency(self, concurrency: int) -> None:
+        _REPLICATION_CONSUMER_CONCURRENCY.set(concurrency)
 
 
 _global_tracker: PrometheusMetricsTracker | None = None

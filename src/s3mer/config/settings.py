@@ -121,7 +121,8 @@ class KafkaConfig(BaseModel):
 
     concurrency: int = Field(
         default=1,
-        description="Number of parallel workers/consumers per process",
+        ge=1,
+        description="Parallel message handlers per consumer (keep at 1 unless ordering is verified)",
     )
     replication_retry_delay: float = Field(
         default=1.0,
@@ -130,6 +131,11 @@ class KafkaConfig(BaseModel):
     replication_max_retry_delay: float = Field(
         default=60.0,
         description="Max retry delay in seconds for replication backoff",
+    )
+    replication_max_retries: int = Field(
+        default=10,
+        ge=1,
+        description="Max background retry rounds per message before skipping (uses exponential backoff)",
     )
 
 
