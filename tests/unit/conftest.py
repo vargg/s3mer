@@ -1,13 +1,12 @@
 """Unit-test fixtures — isolate tests from local config/settings.yaml."""
 
 from collections.abc import Iterator
-from unittest.mock import patch
 
 import pytest
 from pydantic import SecretStr
 
-from s3mer.common.streaming import get_stream_config
-from s3mer.config.settings import KafkaConfig, Settings, load_settings
+from s3mer.common.streaming import reset_stream_config_cache
+from s3mer.config.settings import KafkaConfig, Settings, set_settings_override
 
 
 @pytest.fixture
@@ -35,13 +34,10 @@ def test_settings() -> Settings:
 
 
 @pytest.fixture(autouse=True)
-def mock_load_settings(test_settings: Settings) -> Iterator[None]:
-    """Prevent S3ProxyApp/worker from loading developer settings.yaml during unit tests."""
-    with (
-        patch("s3mer.config.settings.load_settings", return_value=test_settings),
-        patch("s3mer.app.load_settings", return_value=test_settings),
-        patch("s3mer.worker.app.load_settings", return_value=test_settings),
-    ):
-        yield
-    load_settings.cache_clear()
-    get_stream_config.cache_clear()
+def use_test_settings(test_settings: Settings) -> Iterator[None]:
+    """Prevent app/worker code from loading developer settings.yaml during unit tests."""
+    set_settings_override(test_settings)
+    reset_stream_config_cache()
+    yield
+    set_settings_override(None)
+    reset_stream_config_cache()

@@ -55,6 +55,11 @@ def get_stream_config() -> StreamConfig:
         return StreamConfig.defaults()
 
 
+def reset_stream_config_cache() -> None:
+    """Clear cached stream config (e.g. after settings override changes in tests)."""
+    get_stream_config.cache_clear()
+
+
 def get_chunk_size() -> int:
     """Get the streaming chunk size from configuration."""
     return get_stream_config().chunk_size

@@ -209,7 +209,19 @@ class Settings(BaseSettings):
         return self
 
 
+_settings_override: Settings | None = None
+
+
+def set_settings_override(settings: Settings | None) -> None:
+    """Replace cached settings (for tests). Pass None to restore normal loading."""
+    global _settings_override  # noqa: PLW0603
+    _settings_override = settings
+    load_settings.cache_clear()
+
+
 @lru_cache
 def load_settings() -> Settings:
     """Load settings using Pydantic-settings' built-in resolution logic."""
+    if _settings_override is not None:
+        return _settings_override
     return Settings()
