@@ -10,13 +10,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import math
 import os
 import random
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 
 from aiobotocore.config import AioConfig
@@ -28,6 +30,12 @@ PAYLOAD_COUNT = 20
 class OperationType(StrEnum):
     PUT = "PUT"
     GET = "GET"
+
+
+class RunMode(StrEnum):
+    BOTH = "both"
+    DIRECT_ONLY = "direct-only"
+    PROXY_ONLY = "proxy-only"
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,13 +139,9 @@ class PayloadGenerator:
         self._count = count
 
     def generate(self) -> list[bytes]:
-        print(
-            f"Pre-generating {self._count} random payloads "
-            f"({self._min_size_kb}KB to {self._max_size_kb}KB)..."
-        )
+        print(f"Pre-generating {self._count} random payloads ({self._min_size_kb}KB to {self._max_size_kb}KB)...")
         return [
-            os.urandom(random.randint(self._min_size_kb * 1024, self._max_size_kb * 1024))
-            for _ in range(self._count)
+            os.urandom(random.randint(self._min_size_kb * 1024, self._max_size_kb * 1024)) for _ in range(self._count)
         ]
 
 
@@ -337,24 +341,48 @@ class ComparisonReport:
         print(f"{label:<25} | {direct:<10.2f} MB/s | {proxy:<10.2f} MB/s | {difference}")
 
 
+@dataclass(frozen=True, slots=True)
+class PerfRunOptions:
+    mode: RunMode = RunMode.BOTH
+    json_output: str | None = None
+
+
 class PerfComparison:
-    def __init__(self, config: PerfTestConfig) -> None:
+    def __init__(self, config: PerfTestConfig, options: PerfRunOptions | None = None) -> None:
         self._config = config
+        self._options = options or PerfRunOptions()
         self._payloads = PayloadGenerator(config.min_size_kb, config.max_size_kb).generate()
         self._session = get_session()
 
     async def run(self) -> None:
-        direct = await self._run_target(
-            phase_label="Phase 1",
-            endpoint_url=self._config.direct_url,
-            target_label="Direct S3 Backend",
-        )
-        proxy = await self._run_target(
-            phase_label="Phase 2",
-            endpoint_url=self._config.proxy_url,
-            target_label="S3MER Proxy",
-        )
-        ComparisonReport(direct, proxy, self._config.rps).print()
+        direct: TargetBenchmarks | None = None
+        proxy: TargetBenchmarks | None = None
+
+        if self._options.mode in (RunMode.BOTH, RunMode.DIRECT_ONLY):
+            direct = await self._run_target(
+                phase_label="Phase 1",
+                endpoint_url=self._config.direct_url,
+                target_label="Direct S3 Backend",
+            )
+        if self._options.mode in (RunMode.BOTH, RunMode.PROXY_ONLY):
+            proxy = await self._run_target(
+                phase_label="Phase 2",
+                endpoint_url=self._config.proxy_url,
+                target_label="S3MER Proxy",
+            )
+
+        if direct is not None and proxy is not None:
+            ComparisonReport(direct, proxy, self._config.rps).print()
+
+        if self._options.json_output:
+            payload = {
+                "config": asdict(self._config),
+                "mode": self._options.mode.value,
+                "direct": _benchmarks_to_dict(direct) if direct else None,
+                "proxy": _benchmarks_to_dict(proxy) if proxy else None,
+            }
+            Path(self._options.json_output).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            print(f"Wrote JSON results to {self._options.json_output}")
 
     async def _run_target(
         self,
@@ -377,7 +405,16 @@ class PerfComparison:
             return results
 
 
-def parse_args() -> PerfTestConfig:
+def _benchmarks_to_dict(target: TargetBenchmarks) -> dict[str, Any]:
+    put = BenchmarkMetrics.from_result(target.put)
+    get = BenchmarkMetrics.from_result(target.get)
+    return {
+        "put": asdict(put),
+        "get": asdict(get),
+    }
+
+
+def parse_args() -> tuple[PerfTestConfig, PerfRunOptions]:
     parser = argparse.ArgumentParser(description="S3MER Perf Comparison Script")
     parser.add_argument("--proxy-url", default="http://localhost:8000", help="S3MER Proxy URL")
     parser.add_argument("--direct-url", default="http://localhost:9000", help="Direct Primary S3 URL")
@@ -389,11 +426,23 @@ def parse_args() -> PerfTestConfig:
     parser.add_argument("--min-size-kb", type=int, default=1000, help="Min Object Size (KB)")
     parser.add_argument("--max-size-kb", type=int, default=2000, help="Max Object Size (KB)")
     parser.add_argument("--pool-size", type=int, default=100, help="Max Connection Pool Size")
-    return PerfTestConfig.from_args(parser.parse_args())
+    parser.add_argument(
+        "--mode",
+        choices=[m.value for m in RunMode],
+        default=RunMode.BOTH.value,
+        help="Run direct only, proxy only, or both (default)",
+    )
+    parser.add_argument("--json-output", default=None, help="Write results JSON to this path")
+    args = parser.parse_args()
+    return (
+        PerfTestConfig.from_args(args),
+        PerfRunOptions(mode=RunMode(args.mode), json_output=args.json_output),
+    )
 
 
 async def main() -> None:
-    await PerfComparison(parse_args()).run()
+    config, options = parse_args()
+    await PerfComparison(config, options).run()
 
 
 if __name__ == "__main__":

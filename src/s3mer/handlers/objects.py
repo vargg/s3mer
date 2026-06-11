@@ -33,6 +33,17 @@ async def handle_put_object(ctx: HandlerContext) -> ASGIResponse:
         }
         if ctx.content_length is not None:
             params["ContentLength"] = ctx.content_length
+        if content_encoding := ctx.headers.get("content-encoding"):
+            params["ContentEncoding"] = content_encoding
+        if cache_control := ctx.headers.get("cache-control"):
+            params["CacheControl"] = cache_control
+        if content_disposition := ctx.headers.get("content-disposition"):
+            params["ContentDisposition"] = content_disposition
+        if content_language := ctx.headers.get("content-language"):
+            params["ContentLanguage"] = content_language
+        user_metadata = {key[11:]: value for key, value in ctx.headers.items() if key.lower().startswith("x-amz-meta-")}
+        if user_metadata:
+            params["Metadata"] = user_metadata
 
         response = await ctx.write_strategy.execute(S3Operation.PUT_OBJECT, ctx.pool, params)
 

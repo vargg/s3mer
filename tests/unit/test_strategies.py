@@ -248,6 +248,24 @@ class TestWritePrimaryReplicationStrategy:
         assert args["source_backend_name"] == "secondary"
         assert args["target_backend_names"] == ["primary"]
 
+    async def test_kafka_publish_failure_propagates_after_successful_write(
+        self,
+        strategy: WritePrimaryReplicationStrategy,
+        replication_manager: AsyncMock,
+    ) -> None:
+        primary = _make_mock_client("primary", is_primary=True)
+        primary.execute.return_value = {"ETag": '"abc123"'}
+        secondary = _make_mock_client("secondary")
+        pool = _make_mock_pool([primary, secondary])
+
+        replication_manager.schedule_replication.side_effect = Exception("Kafka broker unavailable")
+
+        with pytest.raises(Exception, match="Kafka broker unavailable"):
+            await strategy.execute(S3Operation.PUT_OBJECT, pool, {"Bucket": "b", "Key": "k", "Body": b"data"})
+
+        primary.execute.assert_called_once()
+        replication_manager.schedule_replication.assert_called_once()
+
 
 class TestSimpleMultiSyncWriteStrategy:
     """Tests for the stateless simple multi-sync write strategy."""

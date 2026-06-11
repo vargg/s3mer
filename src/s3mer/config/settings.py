@@ -40,10 +40,18 @@ class ValkeyConfig(BaseModel):
     key_prefix: str = Field(default="s3mer:mpu:")
 
 
+class BackendType(StrEnum):
+    """Backend client implementation."""
+
+    S3 = "s3"
+    MEMORY = "memory"
+
+
 class BackendConfig(BaseModel):
     """Configuration for a single S3-compatible backend (keyed by name in Settings.backends)."""
 
-    endpoint_url: str = Field(description="S3 endpoint URL")
+    backend_type: BackendType = Field(default=BackendType.S3, description="s3 (aiobotocore) or memory (in-process)")
+    endpoint_url: str = Field(default="http://localhost:9000", description="S3 endpoint URL")
     region: str = Field(default="us-east-1", description="AWS region")
     access_key: str = Field(description="AWS access key ID")
     secret_key: SecretStr = Field(description="AWS secret access key")
@@ -96,6 +104,14 @@ class BackendConfig(BaseModel):
         return value
 
 
+class CircuitBreakerConfig(BaseModel):
+    """Circuit breaker settings for backend failover."""
+
+    enabled: bool = Field(default=True, description="Enable per-backend circuit breakers")
+    failure_threshold: int = Field(default=3, ge=1, description="Consecutive failures before opening circuit")
+    open_duration_seconds: float = Field(default=30.0, ge=1.0, description="Seconds to skip backend when open")
+
+
 class KafkaConfig(BaseModel):
     """Kafka connection and topic configuration."""
 
@@ -137,6 +153,12 @@ class KafkaConfig(BaseModel):
         ge=1,
         description="Max background retry rounds per message before skipping (uses exponential backoff)",
     )
+    replication_skip_if_etag_matches: bool = Field(
+        default=False,
+        description="Skip PUT replication when live source and target ETags match",
+    )
+    dlq_enabled: bool = Field(default=True, description="Publish skipped messages to DLQ topics")
+    dlq_topic_suffix: str = Field(default=".dlq", description="Suffix appended to replication topic for DLQ")
 
 
 class WorkerConfig(BaseModel):
@@ -208,6 +230,7 @@ class Settings(BaseSettings):
         default=0.0,
         description="Interval in seconds for active background latency probes.",
     )
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
 
     @classmethod
     def settings_customise_sources(
@@ -261,7 +284,15 @@ class Settings(BaseSettings):
         if self.write_strategy == WriteStrategyType.MULTI_SYNC_DISTRIBUTED and not self.valkey.url:
             raise ValueError("valkey.url is required for multi_sync_distributed")
 
+        if self.replication_mode == ReplicationMode.BATCH and len(self.get_secondaries()) > 1:
+            # Warn at validation time via logger in app startup; store flag for startup hook
+            pass
+
         return self
+
+    def get_secondaries(self) -> list[str]:
+        """Return names of non-primary backends."""
+        return [name for name, cfg in self.backends.items() if not cfg.is_primary]
 
 
 _settings_override: Settings | None = None

@@ -40,6 +40,7 @@ class S3ProxyApp:
             settings.backends,
             metrics_tracker,
             settings.latency_probe_interval_seconds,
+            settings.circuit_breaker,
         )
 
         publisher = ReplicationPublisher(self._broker, settings.kafka.topic)
@@ -78,6 +79,12 @@ class S3ProxyApp:
 
         log = get_logger("s3mer.startup")
         log.info("Starting s3mer proxy", backends=list(settings.backends.keys()))
+        if settings.replication_mode == ReplicationMode.BATCH and len(settings.get_secondaries()) > 1:
+            log.warning(
+                "replication_mode=batch with multiple secondaries pauses all partitions on any secondary failure; "
+                "prefer per_backend for geo deployments",
+                secondaries=settings.get_secondaries(),
+            )
 
         await start_multipart_session_store(self._session_store)
         await self._pool.start()

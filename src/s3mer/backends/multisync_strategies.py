@@ -5,7 +5,6 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from s3mer.backends.client import S3BackendClient
 from s3mer.backends.pool import BackendPool
 from s3mer.backends.sync_executor import (
     MULTIPART_OPERATIONS,
@@ -16,6 +15,7 @@ from s3mer.backends.sync_executor import (
     resolve_sync_backends,
     select_client_response,
 )
+from s3mer.backends.types import BackendClient
 from s3mer.common.errors import OperationNotSupportedError, S3Errors
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
@@ -54,7 +54,7 @@ class _BaseMultiBackendWriteStrategy:
 
     def _prepare_backend_params(
         self,
-        backend: S3BackendClient,
+        backend: BackendClient,
         operation: S3Operation,
         params: dict[str, Any],
         session: MultipartSession | None,
@@ -68,12 +68,12 @@ class _BaseMultiBackendWriteStrategy:
         pool: BackendPool,
         params: dict[str, Any],
         session: MultipartSession | None = None,
-    ) -> tuple[SyncExecutionResult, list[S3BackendClient]]:
+    ) -> tuple[SyncExecutionResult, list[BackendClient]]:
         body_buffer = await MultiSyncBodyBuffer.from_body(params.get("Body"), self._stream_config)
         try:
             backends = resolve_sync_backends(pool, self._sync_backend_names)
 
-            def params_for_backend(backend: S3BackendClient) -> dict[str, Any]:
+            def params_for_backend(backend: BackendClient) -> dict[str, Any]:
                 backend_params = self._prepare_backend_params(backend, operation, params, session)
                 if body_buffer is not None and "Body" in backend_params:
                     backend_params = backend_params.copy()
@@ -93,7 +93,7 @@ class _BaseMultiBackendWriteStrategy:
         pool: BackendPool,
         params: dict[str, Any],
         response: dict[str, Any],
-        successes: list[tuple[S3BackendClient, dict[str, Any]]],
+        successes: list[tuple[BackendClient, dict[str, Any]]],
     ) -> None:
         successful_names = {backend.name for backend, _ in successes}
         targets = [client.name for client in pool.all_clients if client.name not in successful_names]
@@ -224,7 +224,7 @@ class DistributedMultiSyncWriteStrategy(_BaseMultiBackendWriteStrategy):
 
     def _prepare_backend_params(
         self,
-        backend: S3BackendClient,
+        backend: BackendClient,
         operation: S3Operation,
         params: dict[str, Any],
         session: MultipartSession | None,

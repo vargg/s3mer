@@ -13,13 +13,11 @@ from s3mer.backends.pool import BackendPool
 from s3mer.common.metrics import NullMetricsTracker
 from s3mer.config.settings import ReplicationMode
 from s3mer.kafka.messages import ReplicationMessage
-from s3mer.kafka.subscribers import (
-    ReplicationRetryConfig,
-    _replicate_operation,
-    _schedule_global_retry,
-    _schedule_per_backend_retry,
-    register_subscribers,
-)
+from s3mer.kafka.replication_executor import replicate_operation as _replicate_operation
+from s3mer.kafka.retry_scheduler import schedule_global_retry as _schedule_global_retry
+from s3mer.kafka.retry_scheduler import schedule_per_backend_retry as _schedule_per_backend_retry
+from s3mer.kafka.subscribers import register_subscribers
+from s3mer.kafka.subscribers_config import ReplicationRetryConfig
 from s3mer.routing.operations import S3Operation
 
 
@@ -213,6 +211,18 @@ class TestSubscriberPipelines:
     """Tests for subscriber consumer pipelines, offset controls, and pausing."""
 
     @pytest.fixture
+    def kafka_config(self) -> MagicMock:
+        cfg = MagicMock()
+        cfg.concurrency = 1
+        cfg.replication_retry_delay = 0.01
+        cfg.replication_max_retry_delay = 0.01
+        cfg.replication_max_retries = 3
+        cfg.replication_skip_if_etag_matches = False
+        cfg.dlq_enabled = False
+        cfg.dlq_topic_suffix = ".dlq"
+        return cfg
+
+    @pytest.fixture
     def pool(self) -> MagicMock:
         p = MagicMock(spec=BackendPool)
         p.get = MagicMock()
@@ -235,19 +245,20 @@ class TestSubscriberPipelines:
         sub.consumer.assignment.return_value = {TopicPartition("s3mer.replication", 0)}
         return sub
 
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.subscribers.replicate_operation", new_callable=AsyncMock)
     async def test_batch_replication_success(
         self,
         mock_replicate: AsyncMock,
         mock_msg: MagicMock,
         mock_subscriber: MagicMock,
         pool: MagicMock,
+        kafka_config: MagicMock,
     ) -> None:
         mock_broker = MagicMock()
         mock_broker.subscriber.return_value = mock_subscriber
 
         # Register subscribers to initialize decorators
-        register_subscribers(mock_broker, "s3mer.replication", pool, ReplicationMode.BATCH)
+        register_subscribers(mock_broker, "s3mer.replication", pool, ReplicationMode.BATCH, kafka_config)
 
         # Prepare a valid PUT_OBJECT replication message
         message = ReplicationMessage(
@@ -267,18 +278,19 @@ class TestSubscriberPipelines:
         assert mock_replicate.call_count == 2
         mock_subscriber.consumer.pause.assert_not_called()
 
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.subscribers.replicate_operation", new_callable=AsyncMock)
     async def test_batch_replication_fail_action_skips_target(
         self,
         mock_replicate: AsyncMock,
         mock_msg: MagicMock,
         mock_subscriber: MagicMock,
         pool: MagicMock,
+        kafka_config: MagicMock,
     ) -> None:
         mock_broker = MagicMock()
         mock_broker.subscriber.return_value = mock_subscriber
 
-        register_subscribers(mock_broker, "s3mer.replication", pool, ReplicationMode.BATCH)
+        register_subscribers(mock_broker, "s3mer.replication", pool, ReplicationMode.BATCH, kafka_config)
         handler = mock_subscriber.call_args_list[0][0][0]
 
         message = ReplicationMessage(
@@ -298,18 +310,19 @@ class TestSubscriberPipelines:
 
         mock_subscriber.consumer.pause.assert_not_called()
 
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.subscribers.replicate_operation", new_callable=AsyncMock)
     async def test_batch_replication_retry_action_pauses_consumer(
         self,
         mock_replicate: AsyncMock,
         mock_msg: MagicMock,
         mock_subscriber: MagicMock,
         pool: MagicMock,
+        kafka_config: MagicMock,
     ) -> None:
         mock_broker = MagicMock()
         mock_broker.subscriber.return_value = mock_subscriber
 
-        register_subscribers(mock_broker, "s3mer.replication", pool, ReplicationMode.BATCH)
+        register_subscribers(mock_broker, "s3mer.replication", pool, ReplicationMode.BATCH, kafka_config)
         handler = mock_subscriber.call_args_list[0][0][0]
 
         message = ReplicationMessage(
@@ -329,7 +342,7 @@ class TestSubscriberPipelines:
 
         mock_subscriber.consumer.pause.assert_called_once()
 
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.subscribers.replicate_operation", new_callable=AsyncMock)
     async def test_per_backend_replication_retry_action_pauses_partition(
         self,
         mock_replicate: AsyncMock,
@@ -411,8 +424,8 @@ class TestBackgroundRetryLoops:
         p.get.return_value = target
         return p
 
-    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.replicate_operation", new_callable=AsyncMock)
     async def test_schedule_global_retry_success(
         self,
         mock_replicate: AsyncMock,
@@ -455,8 +468,8 @@ class TestBackgroundRetryLoops:
         mock_subscriber.consumer.seek.assert_called_once_with(tp, 100)
         mock_subscriber.consumer.resume.assert_called_once_with(tp)
 
-    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.replicate_operation", new_callable=AsyncMock)
     async def test_schedule_global_retry_permanent_failure_skips(
         self,
         mock_replicate: AsyncMock,
@@ -498,8 +511,8 @@ class TestBackgroundRetryLoops:
         mock_subscriber.consumer.seek.assert_called_once_with(tp, 100)
         mock_subscriber.consumer.resume.assert_called_once_with(tp)
 
-    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.replicate_operation", new_callable=AsyncMock)
     async def test_schedule_per_backend_retry_success(
         self,
         mock_replicate: AsyncMock,
@@ -538,8 +551,8 @@ class TestBackgroundRetryLoops:
         mock_subscriber.consumer.seek.assert_called_once_with(tp, 200)
         mock_subscriber.consumer.resume.assert_called_once_with(tp)
 
-    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.replicate_operation", new_callable=AsyncMock)
     async def test_schedule_per_backend_retry_permanent_failure_seeks_forward(
         self,
         mock_replicate: AsyncMock,
@@ -577,8 +590,8 @@ class TestBackgroundRetryLoops:
         mock_subscriber.consumer.seek.assert_called_once_with(tp, 201)
         mock_subscriber.consumer.resume.assert_called_once_with(tp)
 
-    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.replicate_operation", new_callable=AsyncMock)
     async def test_schedule_global_retry_max_retries_advances_offset(
         self,
         mock_replicate: AsyncMock,
@@ -617,8 +630,8 @@ class TestBackgroundRetryLoops:
         mock_subscriber.consumer.seek.assert_called_once_with(tp, 101)
         mock_subscriber.consumer.resume.assert_called_once_with(tp)
 
-    @patch("s3mer.kafka.subscribers.asyncio.sleep", new_callable=AsyncMock)
-    @patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.asyncio.sleep", new_callable=AsyncMock)
+    @patch("s3mer.kafka.retry_scheduler.replicate_operation", new_callable=AsyncMock)
     async def test_schedule_per_backend_retry_max_retries_advances_offset(
         self,
         mock_replicate: AsyncMock,
@@ -653,3 +666,87 @@ class TestBackgroundRetryLoops:
         assert mock_sleep.call_count == 2
         mock_subscriber.consumer.seek.assert_called_once_with(tp, 201)
         mock_subscriber.consumer.resume.assert_called_once_with(tp)
+
+    async def test_put_object_applies_extended_metadata(self, source: MagicMock, target: MagicMock) -> None:
+        message = ReplicationMessage(
+            operation="put_object",
+            bucket="b",
+            key="k",
+            source_backend="p",
+            target_backends=["s"],
+            metadata={
+                "ContentType": "text/plain",
+                "ContentEncoding": "gzip",
+                "Metadata": {"foo": "bar"},
+                "ContentLength": "10",
+            },
+        )
+        body_mock = AsyncMock()
+        body_mock.__aenter__.return_value = body_mock
+        source.execute.return_value = {"Body": body_mock}
+
+        await _replicate_operation(S3Operation.PUT_OBJECT, message, source, target)
+
+        put_params = target.execute.call_args[0][1]
+        assert put_params["ContentEncoding"] == "gzip"
+        assert put_params["Metadata"] == {"foo": "bar"}
+
+    async def test_create_bucket_idempotent_replay(self, source: MagicMock, target: MagicMock) -> None:
+        message = ReplicationMessage(
+            operation="create_bucket",
+            bucket="b",
+            key=None,
+            source_backend="p",
+            target_backends=["s"],
+        )
+        target.execute.side_effect = make_client_error("BucketAlreadyOwnedByYou", 409)
+
+        await _replicate_operation(S3Operation.CREATE_BUCKET, message, source, target)
+
+        target.execute.assert_called_once()
+
+    async def test_delete_bucket_no_such_bucket_is_idempotent(self, source: MagicMock, target: MagicMock) -> None:
+        message = ReplicationMessage(
+            operation="delete_bucket",
+            bucket="b",
+            key=None,
+            source_backend="p",
+            target_backends=["s"],
+        )
+        target.execute.side_effect = make_client_error("NoSuchBucket", 404)
+
+        await _replicate_operation(S3Operation.DELETE_BUCKET, message, source, target)
+
+        target.execute.assert_called_once()
+
+    async def test_unsupported_operation_does_not_raise(self, source: MagicMock, target: MagicMock) -> None:
+        message = ReplicationMessage(
+            operation="list_objects",
+            bucket="b",
+            key=None,
+            source_backend="p",
+            target_backends=["s"],
+        )
+
+        await _replicate_operation(S3Operation.LIST_OBJECTS, message, source, target)
+
+        target.execute.assert_not_called()
+
+    async def test_etag_skip_avoids_put(self, source: MagicMock, target: MagicMock) -> None:
+        ReplicationRetryConfig.skip_if_etag_matches = True
+        message = ReplicationMessage(
+            operation="put_object",
+            bucket="b",
+            key="k",
+            source_backend="p",
+            target_backends=["s"],
+            metadata={},
+        )
+        source.execute.return_value = {"ETag": '"same"'}
+        target.execute.return_value = {"ETag": '"same"'}
+
+        await _replicate_operation(S3Operation.PUT_OBJECT, message, source, target)
+
+        source.execute.assert_called_once()
+        target.execute.assert_called_once()
+        ReplicationRetryConfig.skip_if_etag_matches = False

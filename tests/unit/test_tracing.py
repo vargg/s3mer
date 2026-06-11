@@ -130,22 +130,20 @@ async def test_subscriber_batch_tracing_extraction() -> None:
     # Get the decorated handler function
     handler = subscriber.call_args_list[0][0][0]
 
+    message = ReplicationMessage(
+        operation="put_object",
+        bucket="test-bucket",
+        key="test-key",
+        source_backend="primary",
+        target_backends=[],
+    )
+
     with (
-        patch("s3mer.kafka.subscribers.ReplicationMessage.model_validate_json") as mock_validate,
         patch("structlog.contextvars.bind_contextvars") as mock_bind,
         patch("structlog.contextvars.clear_contextvars") as mock_clear,
-        patch("s3mer.kafka.subscribers._replicate_operation", new_callable=AsyncMock),
+        patch("s3mer.kafka.subscribers.replicate_operation", new_callable=AsyncMock),
     ):
-        mock_msg = MagicMock()
-        mock_msg.operation = "put_object"
-        mock_msg.bucket = "test-bucket"
-        mock_msg.key = "test-key"
-        mock_msg.source_backend = "primary"
-        mock_msg.target_backends = []
-        mock_msg.metadata = {}
-        mock_validate.return_value = mock_msg
-
-        await handler("{}", msg)
+        await handler(message.model_dump_json(), msg)
 
         # Assert correct request ID was extracted and bound
         mock_bind.assert_called_once_with(request_id="subscriber-req-id-123")

@@ -24,6 +24,7 @@ def create_worker_app() -> AsgiFastStream:
         settings.backends,
         metrics,
         settings.latency_probe_interval_seconds,
+        settings.circuit_breaker,
     )
 
     register_subscribers(

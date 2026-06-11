@@ -50,13 +50,13 @@ This retry contract replaces a transactional outbox for the target deployment: t
 - [x] **Request ID Propagation**: Generate a unique `X-S3MER-Request-ID` for every incoming request.
 - [x] **Unified Logging**: Inject Request ID into all `structlog` contexts (Proxy and Worker).
 - [x] **Kafka Headers**: Pass the Request ID in Kafka message headers to correlate proxy requests with replication tasks.
-- [ ] **Replication lag & consumer health alerts**: Dashboards/alerts for per-backend consumer lag, partition pause duration, and background retry backlog (recommended for geo deployments).
+- [x] **Replication lag & consumer health alerts**: Metrics for paused partitions, background retries in flight, DLQ volume, and consumer outcomes — see [docs/operations.md](docs/operations.md).
 
 ## 2. Robust Error Handling
 
 - [x] **Granular Error Classifier**: Map `botocore` error codes to `RETRY`, `FALLBACK`, or `FAIL`.
-- [ ] **Declarative Error Mapping Registry**: Refactor procedural mappings in `ErrorClassifier` to a declarative registry (maintainability; lower urgency for bounded API surface).
-- [ ] **Active Circuit Breaker in Backend Pool**: Skip failing backends quickly during read-fallback instead of waiting on TCP/socket timeouts (still valuable for geo read paths).
+- [x] **Declarative Error Mapping Registry**: `common/error_registry.py` with `ERROR_REGISTRY` rules; `ErrorClassifier` delegates to registry first.
+- [x] **Active Circuit Breaker in Backend Pool**: Per-backend `BackendCircuitBreaker` integrated in pool read/write candidate selection.
 
 ## 3. Configuration & Resource Management
 
@@ -81,7 +81,7 @@ This retry contract replaces a transactional outbox for the target deployment: t
 ## 6. Developer Experience & Performance
 
 - [/] **Dynamic Latency-Based Read Ordering**: `all_by_latency()` for read fallback (primary always first). Boot-time auto-primary selection remains optional future work.
-- [ ] **In-Memory Storage Backend**: Optional mock backend for local dev/tests without MinIO.
+- [x] **In-Memory Storage Backend**: `backends/memory_backend.py` via `backend_type: memory` in settings.
 
 ## 7. Enterprise / optional (not planned for target deployment)
 

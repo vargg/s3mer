@@ -5,8 +5,8 @@ import typing as t
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from s3mer.backends.client import S3BackendClient
 from s3mer.backends.pool import BackendPool
+from s3mer.backends.types import BackendClient
 from s3mer.routing.operations import S3Operation
 
 
@@ -14,8 +14,8 @@ from s3mer.routing.operations import S3Operation
 class SyncExecutionResult:
     """Outcome of a concurrent multi-backend write."""
 
-    successes: list[tuple[S3BackendClient, dict[str, t.Any]]]
-    failures: list[tuple[S3BackendClient, Exception]]
+    successes: list[tuple[BackendClient, dict[str, t.Any]]]
+    failures: list[tuple[BackendClient, Exception]]
 
 
 MULTIPART_OPERATIONS = frozenset(
@@ -28,7 +28,7 @@ MULTIPART_OPERATIONS = frozenset(
 )
 
 
-def resolve_sync_backends(pool: BackendPool, sync_backend_names: list[str] | None) -> list[S3BackendClient]:
+def resolve_sync_backends(pool: BackendPool, sync_backend_names: list[str] | None) -> list[BackendClient]:
     """Resolve configured sync backend names to clients (default: all backends)."""
     if not sync_backend_names:
         return pool.all_clients
@@ -36,7 +36,7 @@ def resolve_sync_backends(pool: BackendPool, sync_backend_names: list[str] | Non
 
 
 def select_client_response(
-    successes: list[tuple[S3BackendClient, dict[str, t.Any]]], response_backend: str | None
+    successes: list[tuple[BackendClient, dict[str, t.Any]]], response_backend: str | None
 ) -> dict[str, t.Any]:
     """Pick the response dict returned to the S3 client."""
     if not successes:
@@ -55,9 +55,9 @@ def select_client_response(
 
 
 async def execute_concurrent(
-    backends: list[S3BackendClient],
+    backends: list[BackendClient],
     operation: S3Operation,
-    params_for_backend: Callable[[S3BackendClient], dict[str, t.Any]],
+    params_for_backend: Callable[[BackendClient], dict[str, t.Any]],
 ) -> SyncExecutionResult:
     """Execute the same logical operation on multiple backends concurrently."""
     if not backends:
@@ -66,8 +66,8 @@ async def execute_concurrent(
     tasks = [backend.execute(operation, params_for_backend(backend)) for backend in backends]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    successes: list[tuple[S3BackendClient, dict[str, t.Any]]] = []
-    failures: list[tuple[S3BackendClient, Exception]] = []
+    successes: list[tuple[BackendClient, dict[str, t.Any]]] = []
+    failures: list[tuple[BackendClient, Exception]] = []
     for backend, result in zip(backends, results, strict=True):
         if isinstance(result, Exception):
             failures.append((backend, result))
@@ -83,7 +83,7 @@ def quorum_met(success_count: int, sync_quorum: int) -> bool:
     return success_count >= sync_quorum
 
 
-def raise_best_failure(failures: list[tuple[S3BackendClient, Exception]]) -> t.NoReturn:
+def raise_best_failure(failures: list[tuple[BackendClient, Exception]]) -> t.NoReturn:
     """Raise the most relevant failure for client-visible errors."""
     for backend, exc in failures:
         if backend.is_primary:

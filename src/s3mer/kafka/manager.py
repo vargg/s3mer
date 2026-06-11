@@ -11,6 +11,27 @@ from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
 
+REPLICATED_OBJECT_METADATA = (
+    "ContentType",
+    "ContentEncoding",
+    "CacheControl",
+    "ContentDisposition",
+    "ContentLanguage",
+    "Expires",
+    "Metadata",
+)
+
+BUCKET_LEVEL_OPERATIONS = frozenset(
+    {
+        S3Operation.CREATE_BUCKET,
+        S3Operation.DELETE_BUCKET,
+        S3Operation.PUT_BUCKET_LIFECYCLE,
+        S3Operation.DELETE_BUCKET_LIFECYCLE,
+        S3Operation.PUT_BUCKET_POLICY,
+        S3Operation.DELETE_BUCKET_POLICY,
+    }
+)
+
 
 class BaseReplicationManager(ABC):
     """
@@ -62,8 +83,8 @@ class BaseReplicationManager(ABC):
                 return [d["Key"] for d in deleted]
             return [obj["Key"] for obj in params.get("Delete", {}).get("Objects", [])]
 
-        # Bucket operations don't have a key, but still need one replication task
-        if operation in (S3Operation.CREATE_BUCKET, S3Operation.DELETE_BUCKET):
+        # Bucket-level operations have no object key but still need one replication task
+        if operation in BUCKET_LEVEL_OPERATIONS:
             return [None]
 
         key = params.get("Key")
@@ -72,7 +93,7 @@ class BaseReplicationManager(ABC):
     def _build_metadata(self, params: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
         """Extract metadata for replication tasks."""
         metadata: dict[str, Any] = {}
-        for key in ("ETag", "ContentType", "ContentLength"):
+        for key in ("ETag", "ContentLength", *REPLICATED_OBJECT_METADATA):
             if key in response:
                 metadata[key] = response[key]
             elif key in params:

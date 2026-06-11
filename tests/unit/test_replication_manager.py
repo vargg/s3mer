@@ -103,6 +103,51 @@ class TestBatchReplicationManager:
         )
         publisher.publish.assert_not_called()
 
+    async def test_schedule_bucket_lifecycle_replication(
+        self,
+        manager: BatchReplicationManager,
+        publisher: AsyncMock,
+    ) -> None:
+        params = {
+            "Bucket": "my-bucket",
+            "LifecycleConfiguration": {"Rules": [{"ID": "r1", "Status": "Enabled"}]},
+        }
+
+        await manager.schedule_replication(
+            operation=S3Operation.PUT_BUCKET_LIFECYCLE,
+            params=params,
+            response={},
+            source_backend_name="primary",
+            target_backend_names=["secondary"],
+        )
+
+        publisher.publish.assert_called_once()
+        msg = publisher.publish.call_args[0][0]
+        assert msg.operation == "put_bucket_lifecycle_configuration"
+        assert msg.bucket == "my-bucket"
+        assert msg.key is None
+
+    async def test_schedule_bucket_policy_replication(
+        self,
+        manager: BatchReplicationManager,
+        publisher: AsyncMock,
+    ) -> None:
+        params = {"Bucket": "my-bucket", "Policy": '{"Statement": []}'}
+
+        await manager.schedule_replication(
+            operation=S3Operation.PUT_BUCKET_POLICY,
+            params=params,
+            response={},
+            source_backend_name="primary",
+            target_backend_names=["secondary"],
+        )
+
+        publisher.publish.assert_called_once()
+        msg = publisher.publish.call_args[0][0]
+        assert msg.operation == "put_bucket_policy"
+        assert msg.bucket == "my-bucket"
+        assert msg.key is None
+
 
 class TestPerBackendReplicationManager:
     """Tests for the PerBackendReplicationManager propagation logic."""

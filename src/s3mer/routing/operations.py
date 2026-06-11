@@ -22,7 +22,7 @@ class S3Operation(StrEnum):
     # Bucket Lifecycle operations
     GET_BUCKET_LIFECYCLE = "get_bucket_lifecycle_configuration"
     PUT_BUCKET_LIFECYCLE = "put_bucket_lifecycle_configuration"
-    DELETE_BUCKET_LIFECYCLE = "delete_bucket_lifecycle_configuration"
+    DELETE_BUCKET_LIFECYCLE = "delete_bucket_lifecycle"
 
     # Bucket Policy operations
     GET_BUCKET_POLICY = "get_bucket_policy"

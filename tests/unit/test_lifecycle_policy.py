@@ -258,7 +258,7 @@ class TestLifecyclePolicyReplication:
             S3Operation.PUT_BUCKET_LIFECYCLE,
             {
                 "Bucket": "test-bucket",
-                "LifecycleConfiguration": rules,
+                "LifecycleConfiguration": {"Rules": rules["Rules"]},
             },
         )
 

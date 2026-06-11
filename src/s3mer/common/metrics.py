@@ -63,6 +63,22 @@ class MetricsTracker(Protocol):
         """Set the configured replication consumer concurrency gauge."""
         ...
 
+    def set_replication_paused_partition(self, topic: str, partition: int, paused: bool) -> None:
+        """Set whether a consumer partition is currently paused (1=paused, 0=active)."""
+        ...
+
+    def set_replication_background_retries_in_flight(self, mode: str, count: int) -> None:
+        """Set the number of active background replication retry tasks."""
+        ...
+
+    def record_replication_dlq(self, reason: str) -> None:
+        """Record a message published to the replication DLQ."""
+        ...
+
+    def set_backend_circuit_state(self, backend: str, state: str) -> None:
+        """Set circuit breaker state for a backend (closed/open/half_open)."""
+        ...
+
 
 class NullMetricsTracker:
     """No-op implementation of MetricsTracker for testing or disabled monitoring."""
@@ -79,6 +95,10 @@ class NullMetricsTracker:
     def record_replication_partition_paused(self, topic: str, partition: int) -> None: ...
     def record_replication_partition_resumed(self, topic: str, partition: int) -> None: ...
     def set_replication_consumer_concurrency(self, concurrency: int) -> None: ...
+    def set_replication_paused_partition(self, topic: str, partition: int, paused: bool) -> None: ...
+    def set_replication_background_retries_in_flight(self, mode: str, count: int) -> None: ...
+    def record_replication_dlq(self, reason: str) -> None: ...
+    def set_backend_circuit_state(self, backend: str, state: str) -> None: ...
 
 
 _HTTP_REQUESTS_TOTAL = Counter(
@@ -160,6 +180,30 @@ _REPLICATION_CONSUMER_CONCURRENCY = Gauge(
     "Configured parallel replication message handlers per consumer",
 )
 
+_REPLICATION_PAUSED_PARTITIONS = Gauge(
+    "s3mer_replication_paused_partitions",
+    "Consumer partitions currently paused for replication retry",
+    ["topic", "partition"],
+)
+
+_REPLICATION_BACKGROUND_RETRIES_IN_FLIGHT = Gauge(
+    "s3mer_replication_background_retries_in_flight",
+    "Active background replication retry tasks",
+    ["mode"],
+)
+
+_REPLICATION_DLQ_TOTAL = Counter(
+    "s3mer_replication_dlq_total",
+    "Replication messages sent to the dead-letter queue",
+    ["reason"],
+)
+
+_BACKEND_CIRCUIT_STATE = Gauge(
+    "s3mer_backend_circuit_state",
+    "Backend circuit breaker state (0=closed, 1=half_open, 2=open)",
+    ["backend_name", "state"],
+)
+
 
 class PrometheusMetricsTracker(MetricsTracker):
     """Prometheus implementation of metrics tracking."""
@@ -207,6 +251,19 @@ class PrometheusMetricsTracker(MetricsTracker):
 
     def set_replication_consumer_concurrency(self, concurrency: int) -> None:
         _REPLICATION_CONSUMER_CONCURRENCY.set(concurrency)
+
+    def set_replication_paused_partition(self, topic: str, partition: int, paused: bool) -> None:
+        _REPLICATION_PAUSED_PARTITIONS.labels(topic=topic, partition=str(partition)).set(1 if paused else 0)
+
+    def set_replication_background_retries_in_flight(self, mode: str, count: int) -> None:
+        _REPLICATION_BACKGROUND_RETRIES_IN_FLIGHT.labels(mode=mode).set(count)
+
+    def record_replication_dlq(self, reason: str) -> None:
+        _REPLICATION_DLQ_TOTAL.labels(reason=reason).inc()
+
+    def set_backend_circuit_state(self, backend: str, state: str) -> None:
+        for label in ("closed", "half_open", "open"):
+            _BACKEND_CIRCUIT_STATE.labels(backend_name=backend, state=label).set(1 if label == state else 0)
 
 
 _global_tracker: PrometheusMetricsTracker | None = None

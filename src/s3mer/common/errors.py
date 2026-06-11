@@ -3,13 +3,13 @@
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from enum import StrEnum
-from http import HTTPStatus
 from typing import ClassVar, Self
 
 import aiohttp
+from aiokafka.errors import KafkaConnectionError, KafkaError
 from botocore.exceptions import BotoCoreError, ClientError
 
+from s3mer.common.error_registry import ErrorAction, classify_from_registry
 from s3mer.common.responses import ASGIResponse
 
 
@@ -169,6 +169,8 @@ class S3ErrorResponse:
         """Map handler exceptions (including strategy errors) to an ASGI response."""
         if isinstance(error, OperationNotSupportedError):
             return error.to_response(resource=error.resource or resource)
+        if isinstance(error, (KafkaConnectionError, KafkaError)):
+            return cls(S3Errors.SERVICE_UNAVAILABLE, message=str(error), resource=resource).to_response()
         return cls.from_client_error(error, resource=resource).to_response()
 
 
@@ -187,49 +189,18 @@ HTTP_CLIENT_ERROR_MIN = 400
 HTTP_SERVER_ERROR_MIN = 500
 
 
-class ErrorAction(StrEnum):
-    """Action to take upon encountering an error."""
-
-    RETRY = "retry"  # Transient rate limits, timeouts, connection issues
-    FALLBACK = "fallback"  # Server failures, backend down (5xx)
-    FAIL = "fail"  # Permanent client errors (400, 403, 404, 409)
-
-
 class ErrorClassifier:
     """Classifies S3 client, network, and system exceptions into granular ErrorActions."""
 
     @classmethod
     def classify(cls, exc: Exception) -> ErrorAction:
         """
-        Classify an exception into an ErrorAction.
-
-        - ClientError with 429/503 status code or rate limiting codes: RETRY
-        - ClientError with >= 500 status code: FALLBACK
-        - ClientError with 4xx status code: FAIL (permanent client error)
-        - TimeoutError, aiohttp.ClientError, BotoCoreError, ConnectionError, OSError: RETRY
-        - All other exceptions: FALLBACK (unhandled system errors)
+        Classify an exception into an ErrorAction using the declarative registry first,
+        then network/transient fallbacks.
         """
         if isinstance(exc, ClientError):
-            response = getattr(exc, "response", None)
-            if not isinstance(response, dict):
-                return ErrorAction.FAIL
-
-            status_code = response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0)
-
-            if status_code in (HTTPStatus.TOO_MANY_REQUESTS, HTTPStatus.SERVICE_UNAVAILABLE):
-                return ErrorAction.RETRY
-
-            error_code = response.get("Error", {}).get("Code", "")
-            if error_code in ("RequestLimitExceeded", "SlowDown", "RequestTimeout", "Throttling"):
-                return ErrorAction.RETRY
-
-            if status_code >= HTTP_SERVER_ERROR_MIN:
-                return ErrorAction.FALLBACK
-
-            if HTTP_CLIENT_ERROR_MIN <= status_code < HTTP_SERVER_ERROR_MIN:
-                return ErrorAction.FAIL
-
-            return ErrorAction.FAIL
+            action = classify_from_registry(exc)
+            return action if action is not None else ErrorAction.FAIL
 
         if isinstance(
             exc,
@@ -240,6 +211,8 @@ class ErrorClassifier:
                 BotoCoreError,
                 ConnectionError,
                 OSError,
+                KafkaConnectionError,
+                KafkaError,
             ),
         ):
             return ErrorAction.RETRY

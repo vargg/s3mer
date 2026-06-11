@@ -39,6 +39,14 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       CLUSTER_ID: "s3mer-test-cluster"
 
+  valkey:
+    image: valkey/valkey:8-alpine
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # --- S3MER Services ---
   s3mer-proxy:
     build:
@@ -69,6 +77,32 @@ services:
       retries: 5
     ports:
       - "8000:8000"
+
+  s3mer-proxy-failover:
+    build:
+      context: .
+      target: final
+    environment:
+      S3MER_LOG_LEVEL: info
+      S3MER_KAFKA__BOOTSTRAP_SERVERS: '["kafka:9092"]'
+      S3MER_BACKENDS__primary__ENDPOINT_URL: http://invalid-primary:9999
+      S3MER_BACKENDS__primary__ACCESS_KEY: minioadmin
+      S3MER_BACKENDS__primary__SECRET_KEY: minioadmin
+      S3MER_BACKENDS__primary__IS_PRIMARY: "true"
+      S3MER_BACKENDS__secondary__ENDPOINT_URL: http://minio-secondary:9000
+      S3MER_BACKENDS__secondary__ACCESS_KEY: minioadmin
+      S3MER_BACKENDS__secondary__SECRET_KEY: minioadmin
+      S3MER_BACKENDS__secondary__IS_PRIMARY: "false"
+    depends_on:
+      minio-secondary:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/.internal/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   s3mer-worker:
     build:
@@ -106,7 +140,9 @@ services:
       target: test
     environment:
       S3MER_PROXY_URL: http://s3mer-proxy:8000
+      S3MER_FAILOVER_PROXY_URL: http://s3mer-proxy-failover:8000
       S3MER_SECONDARY_URL: http://minio-secondary:9000
+      S3MER_VALKEY_URL: redis://valkey:6379/1
       S3MER_ACCESS_KEY: minioadmin
       S3MER_SECRET_KEY: minioadmin
       S3MER_REGION: us-east-1
@@ -114,4 +150,8 @@ services:
       s3mer-proxy:
         condition: service_healthy
       s3mer-worker:
+        condition: service_healthy
+      s3mer-proxy-failover:
+        condition: service_healthy
+      valkey:
         condition: service_healthy

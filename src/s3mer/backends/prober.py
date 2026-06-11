@@ -5,7 +5,7 @@ import contextlib
 import time
 import typing as t
 
-from s3mer.backends.client import S3BackendClient
+from s3mer.backends.types import BackendClient
 from s3mer.common.logging import get_logger
 from s3mer.routing.operations import S3Operation
 
@@ -25,7 +25,7 @@ class Prober(t.Protocol):
 class DummyLatencyProber:
     """Dummy latency prober that does nothing."""
 
-    def __init__(self, clients: list[S3BackendClient], probe_interval: float) -> None:
+    def __init__(self, clients: list[BackendClient], probe_interval: float) -> None:
         self._clients = clients
         self._probe_interval = probe_interval
         self._task: asyncio.Task[None] | None = None
@@ -44,7 +44,7 @@ class LatencyProber:
     Executes cheap LIST_BUCKETS calls to keep actual latency metrics updated.
     """
 
-    def __init__(self, clients: list[S3BackendClient], probe_interval: float) -> None:
+    def __init__(self, clients: list[BackendClient], probe_interval: float) -> None:
         self._clients = clients
         self._probe_interval = probe_interval
         self._task: asyncio.Task[None] | None = None

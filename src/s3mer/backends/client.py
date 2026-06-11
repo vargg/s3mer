@@ -4,6 +4,7 @@ from typing import Any
 from aiobotocore.config import AioConfig
 from aiobotocore.session import get_session
 
+from s3mer.backends.circuit_breaker import BackendCircuitBreaker
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
 from s3mer.config.settings import BackendConfig
@@ -31,6 +32,10 @@ class S3BackendClient:
         self._metrics = metrics
         self._client: Any = None
         self._session = get_session()
+        self._circuit_breaker: BackendCircuitBreaker | None = None
+
+    def set_circuit_breaker(self, breaker: BackendCircuitBreaker) -> None:
+        self._circuit_breaker = breaker
 
     async def start(self) -> None:
         """Initialize the aiobotocore client. Call once at app startup."""
@@ -94,9 +99,13 @@ class S3BackendClient:
             duration = time.perf_counter() - start_time
             self._metrics.record_backend_request(self.name, operation.value, "error", duration)
             self._metrics.record_backend_status(self.name, False)
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_failure()
             raise
         else:
             duration = time.perf_counter() - start_time
             self._metrics.record_backend_request(self.name, operation.value, "success", duration)
             self._metrics.record_backend_status(self.name, True)
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_success()
             return result
