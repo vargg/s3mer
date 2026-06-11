@@ -50,8 +50,3 @@ class S3Operation(StrEnum):
 
     # Bucket object listing
     LIST_OBJECTS_V2 = "list_objects_v2"
-
-    @property
-    def boto_method(self) -> str:
-        """The aiobotocore client method name for this operation."""
-        return self.value

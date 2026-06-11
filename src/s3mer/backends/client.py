@@ -77,7 +77,7 @@ class S3BackendClient:
         if self._client is None:
             raise RuntimeError(f"Backend client {self.name} not started — call start() first")
 
-        method = getattr(self._client, operation.boto_method)
+        method = getattr(self._client, operation.value)
 
         logger.debug(
             "Executing S3 operation",
