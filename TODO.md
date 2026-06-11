@@ -62,7 +62,7 @@ This retry contract replaces a transactional outbox for the target deployment: t
 
 - [x] **Connection Pool Tuning**: `max_pool_connections`, `connect_timeout`, `read_timeout` on `BackendConfig`.
 - [x] **Worker Scaling**: Kafka consumer concurrency per process.
-- [ ] **Inject settings at startup**: Avoid repeated `load_settings()` on streaming hot paths (`get_chunk_size`, buffer limits).
+- [x] **Inject settings at startup**: Avoid repeated `load_settings()` on streaming hot paths (`get_chunk_size`, buffer limits).
 
 ## 4. Consistency & Conflict Resolution
 

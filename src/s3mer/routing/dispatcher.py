@@ -6,7 +6,7 @@ from s3mer.backends.pool import BackendPool
 from s3mer.backends.strategies import OperationStrategy, ReadFallbackStrategy
 from s3mer.common.errors import S3ErrorResponse, S3Errors
 from s3mer.common.metrics import MetricsTracker
-from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder
+from s3mer.common.streaming import ASGIStreamReader, AWSChunkedDecoder, StreamConfig, get_stream_config
 from s3mer.common.types import Receive
 from s3mer.routing.classifier import S3Request
 from s3mer.routing.registry import BodyStyle, HandlerContext, registry
@@ -26,11 +26,13 @@ class RequestDispatcher:
         read_strategy: ReadFallbackStrategy,
         write_strategy: OperationStrategy,
         metrics: MetricsTracker,
+        stream_config: StreamConfig | None = None,
     ) -> None:
         self._pool = pool
         self._read_strategy = read_strategy
         self._write_strategy = write_strategy
         self._metrics = metrics
+        self._stream_config = stream_config or get_stream_config()
 
     async def dispatch(
         self,
@@ -88,10 +90,11 @@ class RequestDispatcher:
         def on_read(n: int) -> None:
             self._metrics.record_data_transfer(direction="in", operation=operation_name, bytes_count=n)
 
-        body: Any = ASGIStreamReader(receive, on_read=on_read)
+        chunk_size = self._stream_config.chunk_size
+        body: Any = ASGIStreamReader(receive, on_read=on_read, chunk_size=chunk_size)
 
         if headers.get("x-amz-content-sha256") == "STREAMING-AWS4-HMAC-SHA256-PAYLOAD":
-            body = AWSChunkedDecoder(body)
+            body = AWSChunkedDecoder(body, chunk_size=chunk_size)
             decoded_length_str = headers.get("x-amz-decoded-content-length")
             if decoded_length_str:
                 content_length = int(decoded_length_str)

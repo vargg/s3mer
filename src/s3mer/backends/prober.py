@@ -3,12 +3,38 @@
 import asyncio
 import contextlib
 import time
+import typing as t
 
 from s3mer.backends.client import S3BackendClient
 from s3mer.common.logging import get_logger
 from s3mer.routing.operations import S3Operation
 
 logger = get_logger(__name__)
+
+
+class Prober(t.Protocol):
+    """Protocol for latency probers."""
+
+    def start(self) -> None:
+        """Start the latency probing loop."""
+
+    async def close(self) -> None:
+        """Cleanly stop the latency probing task."""
+
+
+class DummyLatencyProber:
+    """Dummy latency prober that does nothing."""
+
+    def __init__(self, clients: list[S3BackendClient], probe_interval: float) -> None:
+        self._clients = clients
+        self._probe_interval = probe_interval
+        self._task: asyncio.Task[None] | None = None
+
+    def start(self) -> None:
+        """Start the dummy latency probing loop."""
+
+    async def close(self) -> None:
+        """Cleanly stop the dummy latency probing task."""
 
 
 class LatencyProber:

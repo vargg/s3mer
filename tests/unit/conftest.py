@@ -6,7 +6,8 @@ from unittest.mock import patch
 import pytest
 from pydantic import SecretStr
 
-from s3mer.config.settings import KafkaConfig, Settings
+from s3mer.common.streaming import get_stream_config
+from s3mer.config.settings import KafkaConfig, Settings, load_settings
 
 
 @pytest.fixture
@@ -42,3 +43,5 @@ def mock_load_settings(test_settings: Settings) -> Iterator[None]:
         patch("s3mer.worker.app.load_settings", return_value=test_settings),
     ):
         yield
+    load_settings.cache_clear()
+    get_stream_config.cache_clear()

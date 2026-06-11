@@ -8,19 +8,19 @@ import structlog
 
 def setup_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
     """Configure structlog with console (no color) and optional JSON file output."""
-    shared_processors = [
+    shared_processors = (
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
         structlog.processors.TimeStamper(fmt="iso"),
-    ]
+    )
 
     structlog.configure(
-        processors=[
+        processors=(
             *shared_processors,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
-        ],
+        ),
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,

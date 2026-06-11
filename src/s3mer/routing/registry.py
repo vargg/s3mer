@@ -12,7 +12,7 @@ from s3mer.backends.strategies import (
 )
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.responses import ASGIResponse, ASGIStreamingResponse
-from s3mer.routing.operations import OperationType, S3Operation
+from s3mer.routing.operations import S3Operation
 
 
 class BodyStyle(Enum):
@@ -55,7 +55,6 @@ class HandlerMetadata:
     operation: S3Operation
     func: HandlerFunc
     body_style: BodyStyle
-    operation_type: OperationType
     is_object_op: bool
 
 
@@ -69,7 +68,6 @@ class HandlerRegistry:
         self,
         operation: S3Operation,
         body_style: BodyStyle = BodyStyle.EMPTY,
-        operation_type: OperationType = OperationType.READ,
         is_object_op: bool = True,
     ) -> Callable[[HandlerFunc], HandlerFunc]:
         """Decorator to register a handler."""
@@ -79,7 +77,6 @@ class HandlerRegistry:
                 operation=operation,
                 func=func,
                 body_style=body_style,
-                operation_type=operation_type,
                 is_object_op=is_object_op,
             )
             return func

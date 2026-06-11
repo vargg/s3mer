@@ -10,6 +10,7 @@ from s3mer.backends.strategies import (
 )
 from s3mer.common.logging import get_logger, setup_logging
 from s3mer.common.metrics import get_tracker
+from s3mer.common.streaming import StreamConfig
 from s3mer.common.types import Receive, Scope, Send
 from s3mer.config.settings import ReplicationMode, WriteStrategyType, load_settings
 from s3mer.kafka.broker import create_broker
@@ -32,6 +33,7 @@ class S3ProxyApp:
     def __init__(self) -> None:
         settings = load_settings()
         metrics_tracker = get_tracker()
+        stream_config = StreamConfig.from_settings(settings)
 
         self._broker = create_broker(settings.kafka)
         self._pool = BackendPool(
@@ -47,15 +49,20 @@ class S3ProxyApp:
             replication_manager = BatchReplicationManager(publisher, metrics_tracker)
 
         if settings.write_strategy == WriteStrategyType.MULTI_SYNC:
-            write_strategy: Any = MultiSyncWriteStrategy(metrics_tracker)
+            write_strategy: Any = MultiSyncWriteStrategy(metrics_tracker, stream_config)
         else:
-            write_strategy = WritePrimaryReplicationStrategy(replication_manager, metrics_tracker)
+            write_strategy = WritePrimaryReplicationStrategy(
+                replication_manager,
+                metrics_tracker,
+                stream_config,
+            )
 
         dispatcher = RequestDispatcher(
             self._pool,
             ReadFallbackStrategy(),
             write_strategy,
             metrics_tracker,
+            stream_config,
         )
 
         self._http_handler = S3HTTPHandler(
@@ -90,15 +97,12 @@ class S3ProxyApp:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """ASGI entry point."""
         call_type = scope["type"]
-        if call_type == "lifespan":
+        if call_type == "http":
+            await self._http_handler(scope, receive, send)
+        elif call_type == "lifespan":
             await self._handle_lifespan(scope, receive, send)
-            return
-
-        if call_type != "http":
+        else:
             logger.warning("Unsupported call type", call_type=call_type)
-            return
-
-        await self._http_handler(scope, receive, send)
 
     async def _handle_lifespan(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Handle ASGI lifespan events (startup/shutdown)."""

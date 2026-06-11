@@ -23,33 +23,34 @@ class S3BackendClient:
 
     def __init__(self, name: str, config: BackendConfig, metrics: MetricsTracker) -> None:
         self.name = name
-        self.config = config
         self.is_primary = config.is_primary
         self.priority = config.priority
+        self.last_latency: float = 0.0
+
+        self._config = config
         self._metrics = metrics
         self._client: Any = None
         self._session = get_session()
-        self.last_latency: float = 0.0
 
     async def start(self) -> None:
         """Initialize the aiobotocore client. Call once at app startup."""
         self._client = await self._session.create_client(
             "s3",
-            endpoint_url=self.config.endpoint_url,
-            region_name=self.config.region,
-            aws_access_key_id=self.config.access_key,
-            aws_secret_access_key=self.config.secret_key.get_secret_value(),
-            verify=self.config.verify,
+            endpoint_url=self._config.endpoint_url,
+            region_name=self._config.region,
+            aws_access_key_id=self._config.access_key,
+            aws_secret_access_key=self._config.secret_key.get_secret_value(),
+            verify=self._config.verify,
             config=AioConfig(
-                s3={"addressing_style": self.config.addressing_style, "payload_signing_enabled": False},
+                s3={"addressing_style": self._config.addressing_style, "payload_signing_enabled": False},
                 request_checksum_calculation="when_required",
-                max_pool_connections=self.config.max_pool_connections,
-                connect_timeout=self.config.connect_timeout,
-                read_timeout=self.config.read_timeout,
-                retries={"max_attempts": self.config.max_attempts},
+                max_pool_connections=self._config.max_pool_connections,
+                connect_timeout=self._config.connect_timeout,
+                read_timeout=self._config.read_timeout,
+                retries={"max_attempts": self._config.max_attempts},
             ),
         ).__aenter__()
-        logger.info("Backend client started", backend=self.name, endpoint=self.config.endpoint_url)
+        logger.info("Backend client started", backend=self.name, endpoint=self._config.endpoint_url)
 
     async def close(self) -> None:
         """Close the aiobotocore client. Call once at app shutdown."""

@@ -14,17 +14,13 @@ from s3mer.common.xml import (
     create_multipart_upload_xml,
     get_object_tagging_xml,
 )
-from s3mer.routing.operations import OperationType, S3Operation
+from s3mer.routing.operations import S3Operation
 from s3mer.routing.registry import BodyStyle, HandlerContext, s3_handler
 
 logger = get_logger(__name__)
 
 
-@s3_handler(
-    S3Operation.PUT_OBJECT,
-    operation_type=OperationType.WRITE,
-    body_style=BodyStyle.STREAM,
-)
+@s3_handler(S3Operation.PUT_OBJECT, body_style=BodyStyle.STREAM)
 async def handle_put_object(ctx: HandlerContext) -> ASGIResponse:
     """Handle PUT /{bucket}/{key} — PutObject."""
     try:
@@ -52,10 +48,7 @@ async def handle_put_object(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.GET_OBJECT,
-    operation_type=OperationType.READ,
-)
+@s3_handler(S3Operation.GET_OBJECT)
 async def handle_get_object(ctx: HandlerContext) -> ASGIResponse | ASGIStreamingResponse:
     """Handle GET /{bucket}/{key} — GetObject (streaming)."""
     try:
@@ -87,10 +80,7 @@ async def handle_get_object(ctx: HandlerContext) -> ASGIResponse | ASGIStreaming
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.DELETE_OBJECT,
-    operation_type=OperationType.WRITE,
-)
+@s3_handler(S3Operation.DELETE_OBJECT)
 async def handle_delete_object(ctx: HandlerContext) -> ASGIResponse:
     """Handle DELETE /{bucket}/{key} — DeleteObject."""
     try:
@@ -107,10 +97,7 @@ async def handle_delete_object(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.HEAD_OBJECT,
-    operation_type=OperationType.READ,
-)
+@s3_handler(S3Operation.HEAD_OBJECT)
 async def handle_head_object(ctx: HandlerContext) -> ASGIResponse:
     """Handle HEAD /{bucket}/{key} — HeadObject."""
     try:
@@ -133,10 +120,7 @@ async def handle_head_object(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.CREATE_MULTIPART_UPLOAD,
-    operation_type=OperationType.WRITE,
-)
+@s3_handler(S3Operation.CREATE_MULTIPART_UPLOAD)
 async def handle_create_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
     """Handle POST /{bucket}/{key}?uploads — CreateMultipartUpload."""
     try:
@@ -158,11 +142,7 @@ async def handle_create_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.UPLOAD_PART,
-    operation_type=OperationType.WRITE,
-    body_style=BodyStyle.STREAM,
-)
+@s3_handler(S3Operation.UPLOAD_PART, body_style=BodyStyle.STREAM)
 async def handle_upload_part(ctx: HandlerContext) -> ASGIResponse:
     """Handle PUT /{bucket}/{key}?partNumber=X&uploadId=Y — UploadPart."""
     try:
@@ -190,11 +170,7 @@ async def handle_upload_part(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.COMPLETE_MULTIPART_UPLOAD,
-    operation_type=OperationType.WRITE,
-    body_style=BodyStyle.BUFFERED,
-)
+@s3_handler(S3Operation.COMPLETE_MULTIPART_UPLOAD, body_style=BodyStyle.BUFFERED)
 async def handle_complete_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
     """Handle POST /{bucket}/{key}?uploadId=Y — CompleteMultipartUpload."""
     try:
@@ -254,10 +230,7 @@ async def handle_complete_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.ABORT_MULTIPART_UPLOAD,
-    operation_type=OperationType.WRITE,
-)
+@s3_handler(S3Operation.ABORT_MULTIPART_UPLOAD)
 async def handle_abort_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
     """Handle DELETE /{bucket}/{key}?uploadId=Y — AbortMultipartUpload."""
     try:
@@ -276,10 +249,7 @@ async def handle_abort_multipart_upload(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.COPY_OBJECT,
-    operation_type=OperationType.WRITE,
-)
+@s3_handler(S3Operation.COPY_OBJECT)
 async def handle_copy_object(ctx: HandlerContext) -> ASGIResponse:
     """Handle PUT /{bucket}/{key} with x-amz-copy-source — CopyObject."""
     try:
@@ -299,11 +269,7 @@ async def handle_copy_object(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.PUT_OBJECT_TAGGING,
-    operation_type=OperationType.WRITE,
-    body_style=BodyStyle.BUFFERED,
-)
+@s3_handler(S3Operation.PUT_OBJECT_TAGGING, body_style=BodyStyle.BUFFERED)
 async def handle_put_object_tagging(ctx: HandlerContext) -> ASGIResponse:
     """Handle PUT /{bucket}/{key}?tagging — PutObjectTagging."""
     try:
@@ -354,10 +320,7 @@ async def handle_put_object_tagging(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.GET_OBJECT_TAGGING,
-    operation_type=OperationType.READ,
-)
+@s3_handler(S3Operation.GET_OBJECT_TAGGING)
 async def handle_get_object_tagging(ctx: HandlerContext) -> ASGIResponse:
     """Handle GET /{bucket}/{key}?tagging — GetObjectTagging."""
     try:
@@ -371,10 +334,7 @@ async def handle_get_object_tagging(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}/{ctx.key}").to_response()
 
 
-@s3_handler(
-    S3Operation.DELETE_OBJECT_TAGGING,
-    operation_type=OperationType.WRITE,
-)
+@s3_handler(S3Operation.DELETE_OBJECT_TAGGING)
 async def handle_delete_object_tagging(ctx: HandlerContext) -> ASGIResponse:
     """Handle DELETE /{bucket}/{key}?tagging — DeleteObjectTagging."""
     try:

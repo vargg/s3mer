@@ -131,7 +131,6 @@ S3MER uses **Pydantic-settings** (`config/settings.py`). Example: `config/settin
     ```python
     @s3_handler(
         S3Operation.YOUR_OPERATION,
-        operation_type=OperationType.READ,  # or WRITE
         body_style=BodyStyle.EMPTY,         # or STREAM, BUFFERED
     )
     async def handle_your_op(ctx: HandlerContext) -> ASGIResponse:

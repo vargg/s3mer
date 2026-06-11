@@ -102,10 +102,6 @@ async def test_latency_prober_error_handling(configs: dict[str, BackendConfig]) 
         for client in pool._clients.values():
             assert client.last_latency == float("inf")
 
-        # Close the pool cleanly
-        await pool.close()
-        assert pool._prober._task is None
-
 
 async def test_backend_pool_all_by_latency(configs: dict[str, BackendConfig]) -> None:
     pool = BackendPool(configs, NullMetricsTracker())

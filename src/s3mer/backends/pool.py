@@ -1,7 +1,7 @@
 """Backend pool — manages all configured S3 backend clients."""
 
 from s3mer.backends.client import S3BackendClient
-from s3mer.backends.prober import LatencyProber
+from s3mer.backends.prober import DummyLatencyProber, LatencyProber, Prober
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
 from s3mer.config.settings import BackendConfig
@@ -32,7 +32,8 @@ class BackendPool:
             if cfg.is_primary:
                 self._primary = client
 
-        self._prober = LatencyProber(list(self._clients.values()), probe_interval)
+        prober_class = LatencyProber if probe_interval > 0 else DummyLatencyProber
+        self._prober: Prober = prober_class(list(self._clients.values()), probe_interval)
 
     async def start(self) -> None:
         """Start all backend clients and initiate background latency probing."""

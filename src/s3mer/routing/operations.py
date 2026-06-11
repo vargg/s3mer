@@ -3,13 +3,6 @@
 from enum import StrEnum
 
 
-class OperationType(StrEnum):
-    """Whether an S3 operation is a read or write."""
-
-    READ = "read"
-    WRITE = "write"
-
-
 class S3Operation(StrEnum):
     """
     Supported S3 API operations.
@@ -62,29 +55,3 @@ class S3Operation(StrEnum):
     def boto_method(self) -> str:
         """The aiobotocore client method name for this operation."""
         return self.value
-
-    @property
-    def operation_type(self) -> str:
-        """Whether this operation reads or writes."""
-        from s3mer.routing.registry import OperationType, registry  # noqa: PLC0415
-
-        meta = registry.get(self)
-        if meta and meta.operation_type == OperationType.WRITE:
-            return "write"
-        return "read"
-
-    @property
-    def is_read(self) -> bool:
-        return self.operation_type == "read"
-
-    @property
-    def is_write(self) -> bool:
-        return self.operation_type == "write"
-
-    @property
-    def is_object_operation(self) -> bool:
-        """True if this operation targets an object (vs. a bucket)."""
-        from s3mer.routing.registry import registry  # noqa: PLC0415
-
-        meta = registry.get(self)
-        return meta.is_object_op if meta else True

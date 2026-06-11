@@ -13,7 +13,7 @@ from s3mer.backends.pool import BackendPool
 from s3mer.common.errors import ErrorAction, ErrorClassifier
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
-from s3mer.common.streaming import BufferedStreamReader, ConcurrentFileStream, get_buffer_dir, get_chunk_size
+from s3mer.common.streaming import BufferedStreamReader, ConcurrentFileStream, StreamConfig, get_stream_config
 from s3mer.kafka.manager import BaseReplicationManager
 from s3mer.kafka.publisher import ReplicationPublisher
 from s3mer.routing.operations import S3Operation
@@ -117,9 +117,15 @@ class WritePrimaryReplicationStrategy:
     to secondary backends.
     """
 
-    def __init__(self, replication_manager: BaseReplicationManager, metrics: MetricsTracker) -> None:
+    def __init__(
+        self,
+        replication_manager: BaseReplicationManager,
+        metrics: MetricsTracker,
+        stream_config: StreamConfig | None = None,
+    ) -> None:
         self._replication_manager = replication_manager
         self._metrics = metrics
+        self._stream_config = stream_config or get_stream_config()
 
     @property
     def publisher(self) -> ReplicationPublisher:
@@ -145,7 +151,11 @@ class WritePrimaryReplicationStrategy:
         original_body = params.get("Body")
         is_stream = False
         if original_body and isinstance(original_body, AsyncIterator):
-            params["Body"] = BufferedStreamReader(original_body, self._metrics)
+            params["Body"] = BufferedStreamReader(
+                original_body,
+                self._metrics,
+                stream_config=self._stream_config,
+            )
             is_stream = True
 
         response: dict[str, Any] | None = None
@@ -214,8 +224,9 @@ class MultiSyncWriteStrategy:
     successful writes and raises the failure.
     """
 
-    def __init__(self, metrics: MetricsTracker) -> None:
+    def __init__(self, metrics: MetricsTracker, stream_config: StreamConfig | None = None) -> None:
         self._metrics = metrics
+        self._stream_config = stream_config or get_stream_config()
         # Maps (bucket, key, primary_upload_id) -> {backend_name: backend_upload_id}
         self._upload_id_map: dict[tuple[str, str, str], dict[str, str]] = {}
 
@@ -232,7 +243,10 @@ class MultiSyncWriteStrategy:
         if not body or not isinstance(body, AsyncIterator):
             return None
 
-        temp_fd, temp_file_path = tempfile.mkstemp(prefix="s3mer_multisync_", dir=get_buffer_dir())
+        temp_fd, temp_file_path = tempfile.mkstemp(
+            prefix="s3mer_multisync_",
+            dir=self._stream_config.buffer_dir,
+        )
         os.close(temp_fd)
 
         f: Any = await asyncio.to_thread(Path(temp_file_path).open, "wb")
@@ -255,7 +269,7 @@ class MultiSyncWriteStrategy:
         """Prepare S3 parameters specifically for a given backend client."""
         backend_params = params.copy()
         if temp_file_path is not None:
-            reader = ConcurrentFileStream(temp_file_path, chunk_size=get_chunk_size())
+            reader = ConcurrentFileStream(temp_file_path, chunk_size=self._stream_config.chunk_size)
             file_readers.append(reader)
             backend_params["Body"] = reader
 

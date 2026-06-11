@@ -2,6 +2,7 @@
 
 import json
 from enum import StrEnum
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Self
 
@@ -171,7 +172,7 @@ class Settings(BaseSettings):
         description="Base directory for temporary file buffering. Useful for read-only containers.",
     )
     latency_probe_interval_seconds: float = Field(
-        default=30.0,
+        default=0.0,
         description="Interval in seconds for active background latency probes.",
     )
 
@@ -208,6 +209,7 @@ class Settings(BaseSettings):
         return self
 
 
+@lru_cache
 def load_settings() -> Settings:
     """Load settings using Pydantic-settings' built-in resolution logic."""
     return Settings()

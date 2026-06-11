@@ -3,58 +3,85 @@
 import asyncio
 import tempfile
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from dataclasses import dataclass
 from enum import Enum, auto
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Self
 
 from s3mer.common.logging import get_logger
 from s3mer.common.metrics import MetricsTracker
 from s3mer.common.types import Receive
-from s3mer.config.settings import load_settings
+from s3mer.config.settings import Settings, load_settings
 
 logger = get_logger(__name__)
 
+# Default chunk size: 64 KB — good balance between throughput and memory
+DEFAULT_CHUNK_SIZE = 65_536
+DEFAULT_MAX_MEMORY_STREAM_BUFFER_SIZE = 10 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class StreamConfig:
+    """Streaming buffer and chunk settings resolved from application config."""
+
+    chunk_size: int
+    max_memory_size: int
+    buffer_dir: str | None
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> Self:
+        return cls(
+            chunk_size=settings.stream_chunk_size,
+            max_memory_size=settings.max_memory_stream_buffer_size,
+            buffer_dir=settings.buffer_dir,
+        )
+
+    @classmethod
+    def defaults(cls) -> Self:
+        return cls(
+            chunk_size=DEFAULT_CHUNK_SIZE,
+            max_memory_size=DEFAULT_MAX_MEMORY_STREAM_BUFFER_SIZE,
+            buffer_dir=None,
+        )
+
+
+@lru_cache
+def get_stream_config() -> StreamConfig:
+    """Return cached streaming settings, falling back to defaults if config is unavailable."""
+    try:
+        return StreamConfig.from_settings(load_settings())
+    except Exception:
+        return StreamConfig.defaults()
+
 
 def get_chunk_size() -> int:
-    """Get the streaming chunk size from configuration, or fallback to default 64KB."""
-    try:
-        return load_settings().stream_chunk_size
-    except Exception:
-        return 65_536
+    """Get the streaming chunk size from configuration."""
+    return get_stream_config().chunk_size
 
 
 def get_max_memory_size() -> int:
-    """Get the max memory buffer size before spooling from configuration, or fallback to 10MB."""
-    try:
-        return load_settings().max_memory_stream_buffer_size
-    except Exception:
-        return 10 * 1024 * 1024
+    """Get the max memory buffer size before spooling from configuration."""
+    return get_stream_config().max_memory_size
 
 
 def get_buffer_dir() -> str | None:
-    """Get the temporary file buffer directory from configuration, or None for system default."""
-    try:
-        return load_settings().buffer_dir
-    except Exception:
-        return None
-
-
-# Default chunk size: 64 KB — good balance between throughput and memory
-DEFAULT_CHUNK_SIZE = 65_536
+    """Get the temporary file buffer directory from configuration."""
+    return get_stream_config().buffer_dir
 
 
 async def stream_s3_body(
     s3_response: dict[str, Any],
     chunk_size: int | None = None,
 ) -> AsyncGenerator[bytes, None]:
-    if chunk_size is None:
-        chunk_size = get_chunk_size()
     """
     Yield chunks from an aiobotocore StreamingBody response.
 
     aiobotocore wraps aiohttp's StreamReader. We use iter_chunks()
     for efficient chunked reading without buffering the full object.
     """
+    if chunk_size is None:
+        chunk_size = get_stream_config().chunk_size
     stream = s3_response["Body"]
     try:
         while True:
@@ -76,23 +103,25 @@ class BufferedStreamReader(AsyncIterator[bytes]):
         self,
         reader: AsyncIterator[bytes],
         metrics: MetricsTracker,
+        *,
+        stream_config: StreamConfig | None = None,
         max_memory_size: int | None = None,
         buffer_dir: str | None = None,
+        chunk_size: int | None = None,
     ) -> None:
-        if max_memory_size is None:
-            max_memory_size = get_max_memory_size()
-        if buffer_dir is None:
-            buffer_dir = get_buffer_dir()
+        config = stream_config or get_stream_config()
+        resolved_max_memory = max_memory_size if max_memory_size is not None else config.max_memory_size
+        resolved_buffer_dir = buffer_dir if buffer_dir is not None else config.buffer_dir
         self.reader = reader
         self._metrics = metrics
         self._tmp_file = tempfile.SpooledTemporaryFile(  # noqa: SIM115
-            max_size=max_memory_size,
+            max_size=resolved_max_memory,
             mode="w+b",
-            dir=buffer_dir,
+            dir=resolved_buffer_dir,
         )
         self._read_from_tmp = False
         self._eof_reached = False
-        self._chunk_size = get_chunk_size()
+        self._chunk_size = chunk_size if chunk_size is not None else config.chunk_size
 
         self._metrics.record_active_stream_readers(1)
 
@@ -180,7 +209,7 @@ class ASGIStreamReader(AsyncIterator[bytes]):
         self._buffer = bytearray()
         self._more_body = True
         self._on_read = on_read
-        self._chunk_size = chunk_size if chunk_size is not None else get_chunk_size()
+        self._chunk_size = chunk_size if chunk_size is not None else get_stream_config().chunk_size
 
     async def read(self, n: int = -1) -> bytes:
         if n == -1:
@@ -239,14 +268,14 @@ class AWSChunkedDecoder(AsyncIterator[bytes]):
     Decodes STREAMING-AWS4-HMAC-SHA256-PAYLOAD (aws-chunked) streams on the fly.
     """
 
-    def __init__(self, reader: ASGIStreamReader) -> None:
+    def __init__(self, reader: ASGIStreamReader, chunk_size: int | None = None) -> None:
         self.reader = reader
         self._raw_buffer = bytearray()
         self._decoded_buffer = bytearray()
         self._eof = False
         self._current_chunk_remaining = 0
         self._state = DecoderState.READ_HEADER
-        self._chunk_size = get_chunk_size()
+        self._chunk_size = chunk_size if chunk_size is not None else get_stream_config().chunk_size
 
     async def _fill_raw_buffer(self, n: int) -> bool:
         """Attempt to fill raw buffer with at least n bytes. Returns True if achieved, False if EOF."""
@@ -341,7 +370,7 @@ class ConcurrentFileStream(AsyncIterator[bytes]):
     Each instance has its own file handle, allowing concurrent reads.
     """
 
-    def __init__(self, filepath: str, chunk_size: int = 65536) -> None:
+    def __init__(self, filepath: str, chunk_size: int = DEFAULT_CHUNK_SIZE) -> None:
         self.filepath = filepath
         self.chunk_size = chunk_size
         self._file: Any = None

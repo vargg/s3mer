@@ -14,17 +14,13 @@ from s3mer.common.xml import (
     list_objects_xml,
     parse_lifecycle_configuration_xml,
 )
-from s3mer.routing.operations import OperationType, S3Operation
+from s3mer.routing.operations import S3Operation
 from s3mer.routing.registry import BodyStyle, HandlerContext, s3_handler
 
 logger = get_logger(__name__)
 
 
-@s3_handler(
-    S3Operation.CREATE_BUCKET,
-    operation_type=OperationType.WRITE,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.CREATE_BUCKET, is_object_op=False)
 async def handle_create_bucket(ctx: HandlerContext) -> ASGIResponse:
     """Handle PUT /{bucket} — CreateBucket."""
     try:
@@ -40,11 +36,7 @@ async def handle_create_bucket(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.DELETE_BUCKET,
-    operation_type=OperationType.WRITE,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.DELETE_BUCKET, is_object_op=False)
 async def handle_delete_bucket(ctx: HandlerContext) -> ASGIResponse:
     """Handle DELETE /{bucket} — DeleteBucket."""
     try:
@@ -56,11 +48,7 @@ async def handle_delete_bucket(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.HEAD_BUCKET,
-    operation_type=OperationType.READ,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.HEAD_BUCKET, is_object_op=False)
 async def handle_head_bucket(ctx: HandlerContext) -> ASGIResponse:
     """Handle HEAD /{bucket} — HeadBucket."""
     try:
@@ -72,11 +60,7 @@ async def handle_head_bucket(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.LIST_BUCKETS,
-    operation_type=OperationType.READ,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.LIST_BUCKETS, is_object_op=False)
 async def handle_list_buckets(ctx: HandlerContext) -> ASGIResponse:
     """Handle GET / — ListBuckets."""
     try:
@@ -101,11 +85,7 @@ async def handle_list_buckets(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource="/").to_response()
 
 
-@s3_handler(
-    S3Operation.LIST_OBJECTS_V2,
-    operation_type=OperationType.READ,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.LIST_OBJECTS_V2, is_object_op=False)
 async def handle_list_objects_v2(ctx: HandlerContext) -> ASGIResponse:
     """Handle GET /{bucket}?list-type=2 — ListObjectsV2."""
     try:
@@ -132,11 +112,7 @@ async def handle_list_objects_v2(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.LIST_OBJECTS,
-    operation_type=OperationType.READ,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.LIST_OBJECTS, is_object_op=False)
 async def handle_list_objects(ctx: HandlerContext) -> ASGIResponse:
     """Handle GET /{bucket} — ListObjects (V1)."""
     try:
@@ -159,12 +135,7 @@ async def handle_list_objects(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.DELETE_OBJECTS,
-    operation_type=OperationType.WRITE,
-    is_object_op=False,
-    body_style=BodyStyle.BUFFERED,
-)
+@s3_handler(S3Operation.DELETE_OBJECTS, is_object_op=False, body_style=BodyStyle.BUFFERED)
 async def handle_delete_objects(ctx: HandlerContext) -> ASGIResponse:
     """Handle POST /{bucket}?delete — DeleteObjects."""
     try:
@@ -214,11 +185,7 @@ async def handle_delete_objects(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.GET_BUCKET_LIFECYCLE,
-    operation_type=OperationType.READ,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.GET_BUCKET_LIFECYCLE, is_object_op=False)
 async def handle_get_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
     """Handle GET /{bucket}?lifecycle — GetBucketLifecycleConfiguration."""
     try:
@@ -231,12 +198,7 @@ async def handle_get_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.PUT_BUCKET_LIFECYCLE,
-    operation_type=OperationType.WRITE,
-    is_object_op=False,
-    body_style=BodyStyle.BUFFERED,
-)
+@s3_handler(S3Operation.PUT_BUCKET_LIFECYCLE, is_object_op=False, body_style=BodyStyle.BUFFERED)
 async def handle_put_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
     """Handle PUT /{bucket}?lifecycle — PutBucketLifecycleConfiguration."""
     try:
@@ -252,11 +214,7 @@ async def handle_put_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.DELETE_BUCKET_LIFECYCLE,
-    operation_type=OperationType.WRITE,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.DELETE_BUCKET_LIFECYCLE, is_object_op=False)
 async def handle_delete_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
     """Handle DELETE /{bucket}?lifecycle — DeleteBucketLifecycle."""
     try:
@@ -268,11 +226,7 @@ async def handle_delete_bucket_lifecycle(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.GET_BUCKET_POLICY,
-    operation_type=OperationType.READ,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.GET_BUCKET_POLICY, is_object_op=False)
 async def handle_get_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
     """Handle GET /{bucket}?policy — GetBucketPolicy."""
     try:
@@ -288,12 +242,7 @@ async def handle_get_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.PUT_BUCKET_POLICY,
-    operation_type=OperationType.WRITE,
-    is_object_op=False,
-    body_style=BodyStyle.BUFFERED,
-)
+@s3_handler(S3Operation.PUT_BUCKET_POLICY, is_object_op=False, body_style=BodyStyle.BUFFERED)
 async def handle_put_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
     """Handle PUT /{bucket}?policy — PutBucketPolicy."""
     try:
@@ -309,11 +258,7 @@ async def handle_put_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
         return S3ErrorResponse.from_client_error(exc, resource=f"/{ctx.bucket}").to_response()
 
 
-@s3_handler(
-    S3Operation.DELETE_BUCKET_POLICY,
-    operation_type=OperationType.WRITE,
-    is_object_op=False,
-)
+@s3_handler(S3Operation.DELETE_BUCKET_POLICY, is_object_op=False)
 async def handle_delete_bucket_policy(ctx: HandlerContext) -> ASGIResponse:
     """Handle DELETE /{bucket}?policy — DeleteBucketPolicy."""
     try:
